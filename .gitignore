@@ -21,6 +21,13 @@ Thumbs.db
 
 # Office temp files
 ~$*.docx
+~$*.xlsx
+.~*.docx
+.~*.xlsx
+
+# Excel files (except the test_data.xlsx example)
+*.xlsx
+!test_data.xlsx
 
 # Test output
 test_report.docx
@@ -35,3 +42,8 @@ test_report.docx
 
 # System files
 nul
+
+CLAUDE.md
+AGENTS.md
+Homework_Grading_Results
+Homework
