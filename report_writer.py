@@ -1,17 +1,24 @@
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.oxml.ns import qn # 关键：用于处理中文字体
-from docx.enum.text import WD_ALIGN_PARAGRAPH 
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from datetime import datetime 
 
 class WordReportWriter: 
-    def __init__(self): 
+    def __init__(self, template_path=None, cover_image_path=None): 
         """
         初始化时，创建一个空白文档，并立即设置好样式。
+        
+        Args:
+            template_path: 模板文件路径（暂未使用）
+            cover_image_path: 封面图片路径（暂未使用，当前使用默认路径）
         """
         self.doc = Document() 
         print("创建新 Word 文档") 
         self._setup_styles()
-        self._setup_page_margins() 
+        self._setup_page_margins()
+        self.template_path = template_path
+        self.cover_image_path = cover_image_path 
 
     def _setup_styles(self): 
         """
@@ -233,6 +240,24 @@ class WordReportWriter:
         # 添加分页符
         self.doc.add_page_break() 
 
+    def add_executive_summary(self, summary):
+        """
+        添加执行摘要部分到报告中
+        
+        Args:
+            summary: 执行摘要文本内容
+        """
+        print("开始添加执行摘要...")
+        self.doc.add_heading("执行摘要", level=1)
+        
+        # 添加摘要段落
+        paragraph = self.doc.add_paragraph()
+        paragraph.add_run(summary)
+        
+        # 添加分页符
+        self.doc.add_page_break()
+        print("执行摘要添加完成。")
+        
     def add_emission_table(self, data): 
         """
         接收数据字典，并动态生成一个表格。
@@ -297,14 +322,47 @@ class WordReportWriter:
             return False
 
 # (你可以在文件末尾添加测试代码) 
+    def write_report(self, data, output_path):
+        """
+        主方法：整合所有功能，生成完整报告
+        
+        Args:
+            data: 包含报告所有数据的字典
+            output_path: 输出文件路径
+        """
+        print(f"开始生成完整报告: {output_path}")
+        
+        # 1. 添加封面页
+        company_name = data.get('company_name', '未知公司')
+        report_year = data.get('report_year', datetime.now().year)
+        self.add_title_page(company_name, report_year)
+        
+        # 2. 添加执行摘要（如果有）
+        executive_summary = data.get('executive_summary')
+        if executive_summary:
+            self.add_executive_summary(executive_summary)
+        else:
+            print("警告：未找到执行摘要数据")
+            # 添加空页作为替代
+            self.doc.add_page_break()
+        
+        # 3. 添加排放数据表格
+        self.add_emission_table(data)
+        
+        # 4. 保存文档
+        return self.save(output_path)
+
+# (你可以在文件末尾添加测试代码) 
 if __name__ == "__main__": 
+    from datetime import datetime
     writer = WordReportWriter() 
     test_data = { 
+        'company_name': '我的测试公司',
+        'report_year': 2024,
         'total_emission': 1000, 
         'scope_1': 600, 
-        'scope_2': 400 
+        'scope_2': 400,
+        'executive_summary': '这是一个测试用的执行摘要，展示了AI生成的碳盘查报告执行摘要的基本格式和内容。'
     } 
-    writer.add_title_page("我的测试公司", 2024) 
-    writer.add_emission_table(test_data) 
-    writer.save("test_report.docx") 
+    writer.write_report(test_data, "test_report.docx") 
     print("--- 测试 report_writer.py 完成 ---")
