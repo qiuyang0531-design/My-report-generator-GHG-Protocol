@@ -332,22 +332,54 @@ class WordReportWriter:
         """
         print(f"开始生成完整报告: {output_path}")
         
-        # 1. 添加封面页
-        company_name = data.get('company_name', '未知公司')
-        report_year = data.get('report_year', datetime.now().year)
-        self.add_title_page(company_name, report_year)
-        
-        # 2. 添加执行摘要（如果有）
-        executive_summary = data.get('executive_summary')
-        if executive_summary:
-            self.add_executive_summary(executive_summary)
+        # 处理all_data结构，如果存在的话
+        if 'greenhouse_gas_data' in data and 'emission_reductions' in data:
+            # 获取温室气体数据
+            ghg_data = data['greenhouse_gas_data']
+            # 获取减排行动数据
+            emission_reductions = data['emission_reductions']
+            
+            # 1. 添加封面页
+            company_name = ghg_data.get('company_name', '未知公司')
+            report_year = ghg_data.get('report_year', datetime.now().year)
+            self.add_title_page(company_name, report_year)
+            
+            # 2. 添加执行摘要（如果有）
+            executive_summary = data.get('executive_summary', ghg_data.get('executive_summary'))
+            if executive_summary:
+                self.add_executive_summary(executive_summary)
+            else:
+                print("警告：未找到执行摘要数据")
+                # 添加空页作为替代
+                self.doc.add_page_break()
+            
+            # 3. 添加排放数据表格
+            self.add_emission_table(ghg_data)
+            
+            # 4. 如果有减排行动数据，添加到报告中
+            if emission_reductions:
+                print(f"正在添加 {len(emission_reductions)} 条减排行动数据到报告中")
+                # 这里可以根据需要添加减排行动表格或内容
+                # 目前模板可能没有预设位置，所以先不添加到报告中
+                # 但可以在控制台输出提示
         else:
-            print("警告：未找到执行摘要数据")
-            # 添加空页作为替代
-            self.doc.add_page_break()
-        
-        # 3. 添加排放数据表格
-        self.add_emission_table(data)
+            # 处理旧的数据结构（向后兼容）
+            # 1. 添加封面页
+            company_name = data.get('company_name', '未知公司')
+            report_year = data.get('report_year', datetime.now().year)
+            self.add_title_page(company_name, report_year)
+            
+            # 2. 添加执行摘要（如果有）
+            executive_summary = data.get('executive_summary')
+            if executive_summary:
+                self.add_executive_summary(executive_summary)
+            else:
+                print("警告：未找到执行摘要数据")
+                # 添加空页作为替代
+                self.doc.add_page_break()
+            
+            # 3. 添加排放数据表格
+            self.add_emission_table(data)
         
         # 4. 保存文档
         return self.save(output_path)
