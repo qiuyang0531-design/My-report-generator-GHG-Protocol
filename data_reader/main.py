@@ -185,30 +185,43 @@ class ExcelDataReaderRefactored(BaseReader):
                 m_name = m_info.get('name', '').replace('厌氧池', '耗氧池') 
                 m_info['name'] = m_name 
                 
-                fuel_clean = m_name.replace('燃烧','').replace('外售','').replace('排放','').strip() 
+                fuel_clean = m_name.replace('燃烧','').replace('外售','').replace('排放','').strip()
 
-                # 动态获取当前项的 EF 引用源 
-                ref_key = next((k for k in ef_ref_map.keys() if k == m_name), 
-                              next((k for k in ef_ref_map.keys() if k in m_name or m_name in k), None)) 
-                curr_ef_ref = ef_ref_map.get(ref_key) or "相关核算指南" 
+                # =====================================================================
+                # 范围三优先处理：保留 report_config.py 中已定义的精确 EF/AD 描述
+                # =====================================================================
+                if scope == 'scope_3':
+                    orig_ef = str(m_info.get('ef', '')).strip()
+                    orig_ad = str(m_info.get('ad', '')).strip()
+                    if orig_ef and len(orig_ef) > 15:
+                        # 已有精确 EF 描述（如 ecoinvent, CPCD, WSA 等），
+                        # 只需清洗，不进入下方的通用模板覆盖逻辑
+                        m_info['ad'] = get_clean_desc(orig_ad)
+                        m_info['ef'] = get_clean_desc(orig_ef)
+                        continue
 
-                # 动态获取 H 列来源 
-                s_key = next((k for k in source_map.keys() if k in m_name or m_name in k), None) 
-                ds = source_map.get(s_key, "相关报表") 
+                # 动态获取当前项的 EF 引用源
+                ref_key = next((k for k in ef_ref_map.keys() if k == m_name),
+                              next((k for k in ef_ref_map.keys() if k in m_name or m_name in k), None))
+                curr_ef_ref = ef_ref_map.get(ref_key) or "相关核算指南"
 
-                # ===================================================================== 
-                # 专项分支拦截 
-                # ===================================================================== 
+                # 动态获取 H 列来源
+                s_key = next((k for k in source_map.keys() if k in m_name or m_name in k), None)
+                ds = source_map.get(s_key, "相关报表")
+
+                # =====================================================================
+                # 专项分支拦截
+                # =====================================================================
 
                 # 1. 高压开关 (SF6 逸散) - 新增逻辑 
                 if any(x in m_name for x in ["高压开关", "SF6"]): 
                     m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds}{fuel_clean}填充SF6铭牌额定量的统计。") 
                     m_info['ef'] = get_clean_desc(f"参考GB/T8905-2008 六氟化硫电气设备中气体管理和检测导则9.3，逸散率取值0.5%。") 
 
-                # 2. 废水处理 - 化粪池 (BOD类) 
-                elif "化粪池" in m_name: 
-                    m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds}{period}员工出勤总工时推算BOD排放量的统计。") 
-                    m_info['ef'] = get_clean_desc( 
+                # 2. 废水处理 - 化粪池 (BOD类)
+                elif "化粪池" in m_name:
+                    m_info['ad'] = get_clean_desc(f"根据{company}在{period}内的员工出勤总工时推算BOD排放量。")
+                    m_info['ef'] = get_clean_desc(
                         f"EF=Bo*MCF=0.18（kgCH4/kgBOD）；所需的参数包括Bo甲烷产生最大能力、MCF甲烷修正因子和人均BOD产生量，" 
                         f"分别来源于IPCC《2006 年国家温室气体清单指南》第5卷第6章表6.2、表6.3和表6.4。其中Bo取缺省因子0.6，" 
                         f"MCF取0.3，因{company}的生活废水工业废水处理同在耗氧处理厂中，管理不完善而保守选取0.3。" 
