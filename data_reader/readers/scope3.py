@@ -92,11 +92,21 @@ class Scope3Reader(BaseReader):
                         current_row_num = row[0].row
                         if current_row_num + 2 <= table_sheet.max_row:
                             emission_row = table_sheet[current_row_num + 2]
-                            # 尝试获取该行的总排放量。通常在最后一列(J列或I列)
-                            # 根据 debug_market_emissions，类别11的汇总行在第9列(Column I)是总计
-                            # 我们优先寻找最后一个数值
+                            # 从表头行定位"总量"列，避免 valid_vals[-1] 取到子项
+                            header_row = table_sheet[current_row_num + 1]
+                            zongliang_col = None
+                            for idx, cell in enumerate(header_row):
+                                if cell.value and '总量' in str(cell.value):
+                                    zongliang_col = idx
+                                    break
+                            if zongliang_col is not None:
+                                total_val = self.safe_float(emission_row[zongliang_col].value)
+                                if total_val is not None and total_val > 0:
+                                    result[var_name] = total_val
+                                    print(f"  [范围三汇总] {category_key} 提取到排放量: {result[var_name]}")
+                                    break
+                            # 回退：未找到总量列或总量为0，取最后一个非零值
                             row_vals = [self.safe_float(c.value) for c in emission_row]
-                            # 过滤掉 None 和 0，找最后一个非零值
                             valid_vals = [v for v in row_vals if v is not None and v > 0]
                             if valid_vals:
                                 result[var_name] = valid_vals[-1]
