@@ -161,7 +161,12 @@ class ExcelDataReaderRefactored(BaseReader):
         source_map = {i.get('emission_source'): i.get('data_source') for i in all_table1 if i.get('emission_source')} 
         
         ef_items = result.get('pro_ef_items', []) 
-        ef_ref_map = {i.get('emission_source'): i.get('emission_source_reference') for i in ef_items if i.get('emission_source')} 
+        ef_ref_map = {}
+        for i in ef_items:
+            src = i.get('emission_source')
+            ref = i.get('emission_source_reference')
+            if src and ref and str(ref).strip() and str(ref).strip() != 'None':
+                ef_ref_map[src] = str(ref).strip() 
         
         company = result.get('company_name', '大冶特殊钢有限公司') 
         period = result.get('reporting_period', '2025年度') 
@@ -181,8 +186,9 @@ class ExcelDataReaderRefactored(BaseReader):
         for scope in ['scope_1', 'scope_2', 'scope_3']:
             methods = result.get('quantification_methods', {}).get(scope, {})
             for m_key, m_info in methods.items():
-                # 保存 report_config.py 中定义的原始 AD（用于兜底，保留精确描述）
+                # 保存 report_config.py 中定义的原始 AD/EF（用于兜底，保留精确描述）
                 _orig_ad = str(m_info.get('ad', '')).strip()
+                _orig_ef = str(m_info.get('ef', '')).strip()
 
                 # 强制名称替换：厌氧池 -> 耗氧池
                 m_name = m_info.get('name', '').replace('厌氧池', '耗氧池')
@@ -206,7 +212,24 @@ class ExcelDataReaderRefactored(BaseReader):
                 # 动态获取当前项的 EF 引用源
                 ref_key = next((k for k in ef_ref_map.keys() if k == m_name),
                               next((k for k in ef_ref_map.keys() if k in m_name or m_name in k), None))
-                curr_ef_ref = ef_ref_map.get(ref_key) or "相关核算指南"
+                curr_ef_ref = ef_ref_map.get(ref_key) or None
+
+                # 辅助函数：从原始 EF 描述中提取具体指南名称（《...》）
+                def _extract_guide_ref(ef_text):
+                    if not ef_text:
+                        return None
+                    start = ef_text.find('《')
+                    end = ef_text.find('》', start + 1) if start != -1 else -1
+                    if start != -1 and end != -1:
+                        return ef_text[start:end+1]
+                    return None
+
+                # 若 Excel EF 表无引用，从原始配置 EF 中提取指南名称
+                if not curr_ef_ref:
+                    curr_ef_ref = _extract_guide_ref(_orig_ef)
+                # 最终兜底：行业标准核算指南
+                if not curr_ef_ref:
+                    curr_ef_ref = "《企业温室气体排放核算与报告指南 钢铁生产企业》"
 
                 # 动态获取 H 列来源
                 s_key = next((k for k in source_map.keys() if k in m_name or m_name in k), None)
