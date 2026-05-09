@@ -1303,6 +1303,12 @@ def generate_report_from_xlsx(
     doc.save(output_path)
     print("范围三类别表格纵向单元格合并完成（XML方法）")
 
+    # 10.6. 化学式下标转换
+    print(f"\n[步骤10.6] 化学式数字下标转换...")
+    apply_chemical_subscripts(doc)
+    doc.save(output_path)
+    print("化学式下标转换完成")
+
     print("\n" + "=" * 50)
     print(f"报告生成成功: {output_path}")
     print("=" * 50)
@@ -1368,6 +1374,61 @@ def find_summary_table(doc):
             return idx
 
     return None
+
+
+# Unicode 下标数字映射
+_SUB_DIGITS = str.maketrans('0123456789', '₀₁₂₃₄₅₆₇₈₉')
+
+def _chemical_formula_sub(match):
+    """正则回调：将匹配到的化学式中的数字转为 Unicode 下标"""
+    prefix = match.group(1)
+    digits = match.group(2)
+    suffix = match.group(3) or ''
+    return prefix + digits.translate(_SUB_DIGITS) + suffix
+
+# 匹配化学式：大写字母开头 + 数字 + 可选后缀（如 CO2, CH4, N2O, SF6, NF3, CO2e）
+_CHEM_PATTERN = re.compile(r'\b([A-Z][A-Za-z]?)(\d+)([a-z]?)\b')
+
+
+def apply_chemical_subscripts(doc):
+    """
+    将文档中所有化学式数字转为 Unicode 下标（CO2→CO₂, CH4→CH₄ 等）。
+    遍历段落、表格、页眉页脚中的所有 run。
+    """
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    import copy
+
+    processed_count = 0
+
+    def _process_paragraph(para):
+        nonlocal processed_count
+        for run in para.runs:
+            old = run.text
+            new = _CHEM_PATTERN.sub(_chemical_formula_sub, old)
+            if new != old:
+                run.text = new
+                processed_count += 1
+
+    def _process_document(d):
+        for para in d.paragraphs:
+            _process_paragraph(para)
+        for table in d.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        _process_paragraph(para)
+        for section in d.sections:
+            header = section.header
+            if header:
+                for para in header.paragraphs:
+                    _process_paragraph(para)
+            footer = section.footer
+            if footer:
+                for para in footer.paragraphs:
+                    _process_paragraph(para)
+
+    _process_document(doc)
+    print(f"  化学式下标转换: {processed_count} 处")
 
 
 def clean_excessive_blank_lines(doc):
