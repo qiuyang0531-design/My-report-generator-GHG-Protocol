@@ -231,6 +231,10 @@ class ExcelDataReaderRefactored(BaseReader):
                 if not curr_ef_ref:
                     curr_ef_ref = "《企业温室气体排放核算与报告指南 钢铁生产企业》"
 
+                # 规范化：修正缩略名称为完整名称
+                if curr_ef_ref == '《钢铁生产核算指南》':
+                    curr_ef_ref = '《企业温室气体排放核算与报告指南-钢铁生产》'
+
                 # 动态获取 H 列来源
                 s_key = next((k for k in source_map.keys() if k in m_name or m_name in k), None)
                 ds = source_map.get(s_key, None)  # 无匹配时返回 None
