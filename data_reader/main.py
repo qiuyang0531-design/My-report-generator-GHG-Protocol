@@ -195,6 +195,11 @@ class ExcelDataReaderRefactored(BaseReader):
                 m_info['name'] = m_name
 
                 fuel_clean = m_name.replace('燃烧','').replace('外售','').replace('排放','').strip()
+                # 从括号中提取物质名称（如 "热处理炉/加热炉（天然气）" → "天然气"）
+                start = fuel_clean.rfind('（')
+                end = fuel_clean.rfind('）')
+                if start != -1 and end != -1 and end > start:
+                    fuel_clean = fuel_clean[start+1:end]
 
                 # =====================================================================
                 # 范围三优先处理：保留 report_config.py 中已定义的精确 EF/AD 描述
