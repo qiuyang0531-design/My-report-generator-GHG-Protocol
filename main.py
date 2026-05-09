@@ -921,28 +921,6 @@ def generate_report_from_xlsx(
     print(f"  范围二排放（基于市场）: {context.get('scope_2_market_based_emissions')}")
     print(f"  范围三排放: {context.get('scope_3_emissions')}")
 
-    # 调试量化方法
-    print("\n量化方法配置检查:")
-    if 'quantification_methods' in context:
-        scope1_methods = context['quantification_methods'].get('scope_1', {})
-        print(f"  范围一方法数量: {len(scope1_methods)}")
-
-        if 'gasoline_transport' in scope1_methods:
-            gasoline_ef = scope1_methods['gasoline_transport']['ef']
-            print(f"  汽油EF配置: {gasoline_ef}")
-
-        if 'diesel_transport' in scope1_methods:
-            diesel_ef = scope1_methods['diesel_transport']['ef']
-            print(f"  柴油EF配置: {diesel_ef}")
-    else:
-        print("  未找到quantification_methods")
-
-    print("\n范围三分类排放量:")
-    for i in range(1, 16):  # 范围三共15个类别
-        val = context.get(f'scope_3_category_{i}_emissions')
-        if val and val > 0:
-            print(f"  类别{i}: {val}")
-
     # 2. 加载模板
     print(f"\n[步骤2] 加载模板: {template_path}")
     template = DocxTemplate(template_path)
@@ -1171,6 +1149,31 @@ def generate_report_from_xlsx(
                 v['ad'] = f"在基于位置的基础上，扣除已核销的绿色电力证书（GEC）对应电量。{ad}"
         print("[范围二] 已拆分 scope_2 (基于位置) 和 scope_2_market (基于市场)")
 
+    # 3.7 过滤范围三量化方法：仅保留有排放的类别
+    flags = render_context.get('flags', {})
+    scope_3_methods = quant_methods.get('scope_3', {})
+    scope_3_names = render_context.get('scope_3_category_names', {})
+    if scope_3_methods:
+        active_scope_3 = {}
+        active_names = {}
+        for i in range(1, 16):
+            cat_key = f'category_{i}'
+            flag_key = f'has_scope_3_category_{i}'
+            if flags.get(flag_key, False):
+                if cat_key in scope_3_methods:
+                    active_scope_3[cat_key] = scope_3_methods[cat_key]
+                # scope_3_category_names 使用字符串键 "category_i"
+                if cat_key in scope_3_names:
+                    active_names[cat_key] = scope_3_names[cat_key]
+                elif i in scope_3_names:
+                    active_names[cat_key] = scope_3_names[i]
+        quant_methods['scope_3'] = active_scope_3
+        render_context['scope_3_category_names'] = active_names
+        excluded = [str(i) for i in range(1, 16)
+                    if not flags.get(f'has_scope_3_category_{i}', False)]
+        print(f"[范围三过滤] 保留类别: {list(active_scope_3.keys())}")
+        print(f"[范围三过滤] 排除类别: {excluded}")
+
     # 4. 渲染模板
     print("[步骤4] 渲染模板...")
     
@@ -1186,76 +1189,11 @@ def generate_report_from_xlsx(
 
     print("[渲染] 已注册过滤器: cn_num, format_number, format_emission")
 
-    # 调试：检查scope3_category10数据
-    print(f"[调试] scope3_category10 数据检查:")
-    print(f"  - 是否存在: {'scope3_category10' in render_context}")
-    if 'scope3_category10' in render_context:
-        cat10_data = render_context['scope3_category10']
-        print(f"  - 数据类型: {type(cat10_data)}")
-        print(f"  - 数据长度: {len(cat10_data) if isinstance(cat10_data, list) else 'N/A'}")
-        if isinstance(cat10_data, list) and len(cat10_data) > 0:
-            print(f"  - 第一条数据: {cat10_data[0]}")
-
-    # 调试：检查scope_3_category_10_emissions_display
-    print(f"[调试] scope_3_category_10_emissions_display 检查:")
-    print(f"  - scope_3_category_10_emissions: {render_context.get('scope_3_category_10_emissions', 'NOT FOUND')}")
-    print(f"  - scope_3_category_10_emissions_display: '{render_context.get('scope_3_category_10_emissions_display', 'NOT FOUND')}'")
-    print(f"  - 条件判断结果: {bool(render_context.get('scope_3_category_10_emissions_display', ''))}")
-
     template.render(render_context)
 
     # 5. 保存报告
     print(f"\n[步骤5] 保存报告到: {output_path}")
     template.save(output_path)
-
-    # 5.3. 检查类别12排放因子表是否被渲染
-    print(f"\n[步骤5.3] 检查类别12排放因子表...")
-    from docx import Document
-    doc_check = Document(output_path)
-    cat12_ef_found = False
-    cat11_ef_idx = None
-
-    # 首先找到类别11的表格
-    for i, table in enumerate(doc_check.tables):
-        for row in table.rows[:3]:
-            for cell in row.cells:
-                if '类别11' in cell.text and '排放因子' in cell.text:
-                    cat11_ef_idx = i
-                    print(f"  找到类别11排放因子表: 表格{i}")
-                    break
-            if cat11_ef_idx is not None:
-                break
-        if cat11_ef_idx is not None:
-            break
-
-    # 检查类别11之后的表格
-    if cat11_ef_idx is not None:
-        print(f"  检查类别11之后的表格（表格{cat11_ef_idx+1}到{min(cat11_ef_idx+3, len(doc_check.tables))}）")
-        for i in range(cat11_ef_idx+1, min(cat11_ef_idx+3, len(doc_check.tables))):
-            table = doc_check.tables[i]
-            first_cell = table.rows[0].cells[0].text[:40] if table.rows[0].cells else ''
-            row_count = len(table.rows)
-            print(f"    表格{i}: {row_count}行, 首单元格=\"{first_cell}\"")
-
-    # 搜索类别12
-    for i, table in enumerate(doc_check.tables):
-        for row in table.rows[:3]:
-            for cell in row.cells:
-                if '类别12' in cell.text and '排放因子' in cell.text:
-                    cat12_ef_found = True
-                    print(f"  找到类别12排放因子表: 表格{i}")
-                    break
-            if cat12_ef_found:
-                break
-        if cat12_ef_found:
-            break
-    if not cat12_ef_found:
-        print(f"  警告: 类别12排放因子表未被渲染!")
-        print(f"  文档中共有 {len(doc_check.tables)} 个表格")
-
-    # 5.5. 检查模板渲染后的数据（调试用）
-    print(f"\n[步骤5.5] 检查模板渲染后的数据...")
-    check_template_rendering(output_path)
 
     # 6. 统一公司简介和经营范围的段落格式
     print(f"\n[步骤6] 统一段落格式...")
@@ -1312,126 +1250,6 @@ def generate_report_from_xlsx(
     doc.save(output_path)
     print("空行清理完成")
 
-    # 8.5. 调试：检查模板渲染后的类别10表格状态
-    print(f"\n[步骤8.5] 检查模板渲染后的类别10表格...")
-    cat10_found = False
-    for i, table in enumerate(doc.tables):
-        for row in table.rows:
-            for cell in row.cells:
-                if '3.10.1' in cell.text or '3.10.2' in cell.text:
-                    print(f"  找到类别10数据在表格{i}!")
-                    cat10_found = True
-                    break
-            if cat10_found:
-                break
-        if cat10_found:
-            break
-    if not cat10_found:
-        print("  警告：模板渲染后未找到类别10数据（3.10.1/3.10.2）")
-
-        # 变通方案：直接添加类别10库存表格到文档
-        if 'scope3_category10' in context:
-            cat10_items = context['scope3_category10']
-            print(f"  尝试直接添加类别10库存表格（{len(cat10_items)}条数据）...")
-
-            # 查找类别10标题段落后插入表格
-            inserted = False
-            for i, para in enumerate(doc.paragraphs):
-                if '10' in para.text and '销售产品加工' in para.text and '排放清册' in para.text:
-                    # 在此段落后插入新表格
-                    from docx.oxml import OxmlElement
-                    from docx.oxml.ns import qn
-
-                    # 获取段落元素
-                    para_elem = para._element
-                    parent = para_elem.getparent()
-
-                    # 获取段落索引
-                    elem_idx = list(parent).index(para_elem)
-
-                    # 创建表格
-                    table_xml = OxmlElement('{' + parent.nsmap['w'] + '}tbl')
-
-                    # 设置表格属性
-                    tbl_pr = OxmlElement('{' + parent.nsmap['w'] + '}tblPr')
-                    tbl_w = OxmlElement('{' + parent.nsmap['w'] + '}tblW')
-                    tbl_w.set(qn('w:type'), 'auto')
-                    tbl_pr.append(tbl_w)
-                    table_xml.append(tbl_pr)
-
-                    # 创建表格行（1行表头 + len(cat10_items)行数据 + 1行单位）
-                    for row_idx in range(len(cat10_items) + 2):
-                        tr = OxmlElement('{' + parent.nsmap['w'] + '}tr')
-
-                        # 创建单元格（4列：编号、排放源、温室气体排放量、CO2）
-                        for col_idx in range(4):
-                            tc = OxmlElement('{' + parent.nsmap['w'] + '}tc')
-                            tc_pr = OxmlElement('{' + parent.nsmap['w'] + '}tcPr')
-                            tc_w = OxmlElement('{' + parent.nsmap['w'] + '}tcW')
-                            tc_w.set(qn('w:type'), 'dxa')
-                            tc_w.set(qn('w:w'), '2000')
-                            tc_pr.append(tc_w)
-                            tc.append(tc_pr)
-
-                            # 创建段落
-                            p = OxmlElement('{' + parent.nsmap['w'] + '}p')
-                            p_pr = OxmlElement('{' + parent.nsmap['w'] + '}pPr')
-                            p.append(p_pr)
-
-                            # 创建文本运行
-                            r = OxmlElement('{' + parent.nsmap['w'] + '}r')
-                            t = OxmlElement('{' + parent.nsmap['w'] + '}t')
-
-                            # 设置文本内容
-                            if row_idx == 0:  # 表头行
-                                if col_idx == 0:
-                                    t.text = '编号'
-                                elif col_idx == 1:
-                                    t.text = '排放源'
-                                elif col_idx == 2:
-                                    t.text = '温室气体排放量'
-                                elif col_idx == 3:
-                                    t.text = 'CO2'
-                            elif row_idx == len(cat10_items) + 1:  # 单位行
-                                if col_idx == 2:
-                                    t.text = '单位：吨CO2e'
-                                else:
-                                    t.text = ''
-                            else:  # 数据行
-                                item_idx = row_idx - 1
-                                if item_idx < len(cat10_items):
-                                    item = cat10_items[item_idx]
-                                    if col_idx == 0:
-                                        t.text = item.get('number', '')
-                                    elif col_idx == 1:
-                                        t.text = item.get('emission_source', '')
-                                    elif col_idx == 2:
-                                        t.text = item.get('total_green_house_gas_emissions', '')
-                                    elif col_idx == 3:
-                                        t.text = item.get('CO2_emissions', '')
-                                else:
-                                    t.text = ''
-
-                            r.append(t)
-                            p.append(r)
-                            tc.append(p)
-                            tr.append(tc)
-
-                        table_xml.append(tr)
-
-                    # 在段落后插入表格
-                    parent.insert(elem_idx + 1, table_xml)
-                    inserted = True
-                    print(f"  成功在段落后添加类别10库存表格")
-                    break
-
-            if inserted:
-                # 重新加载文档以获取新表格
-                doc = Document(output_path)
-                print(f"  文档已重新加载，当前共有{len(doc.tables)}个表格")
-            else:
-                print(f"  无法找到插入位置")
-
     # 9. 删除没有数据的类别表格（仅删除标题段落，保留表格结构）
     print(f"\n[步骤9] 删除没有数据的类别表格...")
     clean_empty_category_tables_v2(doc, context)
@@ -1446,9 +1264,9 @@ def generate_report_from_xlsx(
     doc.save(output_path)
     print("范围三类别标题修复完成")
 
-    # 9.5. 检查合并前的表格数据
-    print(f"\n[步骤9.5] 检查合并前的表格数据...")
-    check_table_before_merge(output_path)
+    # 9.45. 添加范围三排除类别说明
+    print(f"\n[步骤9.45] 添加范围三排除类别说明...")
+    add_excluded_categories_statement(doc, context)
 
     # 10. 使用 XML vMerge 方法合并表格中的纵向单元格（针对表1和表2）
     print(f"\n[步骤10] 使用 XML vMerge 方法合并表格中的纵向单元格...")
@@ -1490,63 +1308,6 @@ def generate_report_from_xlsx(
     print("=" * 50)
 
     return output_path
-
-
-def check_template_rendering(doc_path):
-    """
-    检查模板渲染后的数据填充情况
-    """
-    from docx import Document
-
-    try:
-        doc = Document(doc_path)
-
-        # 检查表格0
-        if len(doc.tables) > 0:
-            table = doc.tables[0]
-            print(f"  表格0大小: {len(table.rows)} 行 x {len(table.columns)} 列")
-
-            # 显示前5行的类别列数据
-            print(f"  表格0第一列前5行:")
-            for row_idx in range(min(5, len(table.rows))):
-                cell_text = table.rows[row_idx].cells[0].text.strip()
-                print(f"    第{row_idx}行: '{cell_text}'")
-
-        # 检查 scope1 排放数据
-        print(f"  scope1_stationary_combustion_emissions_items 前3条数据:")
-        reader = ExcelDataReader('DY-GHG-2026-01 大冶特殊钢-温室气体盘查清册-Update 20260317Protocol-tr-0408.xlsx')
-        data = reader.get_all_context()
-        scope1_items = data.get('scope1_stationary_combustion_emissions_items', [])
-        for i, item in enumerate(scope1_items[:3]):
-            print(f"    {i+1}. category='{item.get('category')}', emission_source='{item.get('emission_source')}'")
-        reader.close()
-
-    except Exception as e:
-        print(f"  检查时出错: {e}")
-
-
-def check_table_before_merge(doc_path):
-    """
-    检查合并前的表格数据
-    """
-    from docx import Document
-
-    try:
-        doc = Document(doc_path)
-
-        if len(doc.tables) > 0:
-            table = doc.tables[0]
-            print(f"  表格0大小: {len(table.rows)} 行 x {len(table.columns)} 列")
-
-            # 检查前3行的数据
-            print(f"  前3行数据:")
-            for row_idx in range(min(3, len(table.rows))):
-                col0_text = table.rows[row_idx].cells[0].text.strip()
-                col1_text = table.rows[row_idx].cells[1].text.strip()
-                print(f"    第{row_idx}行: 列0='{col0_text}', 列1='{col1_text}'")
-
-    except Exception as e:
-        print(f"  检查时出错: {e}")
 
 
 def find_table_by_content(doc, search_keywords):
@@ -1852,7 +1613,6 @@ def clean_empty_category_tables(doc, context):
                     print(f"  标记删除类别{cat_num}的排放因子表: 索引{table_idx}")
 
     # 同时检查所有范围三类别表格（表格26-40），删除只有表头的表格
-    print(f"  [后处理] 检查表格26-40（文档共有{len(doc.tables)}个表格）")
     for table_idx in range(26, min(41, len(doc.tables))):
         if table_idx in tables_to_remove:
             continue  # 已经标记删除
@@ -2179,6 +1939,100 @@ def fix_scope3_category_headers(doc):
     print(f"    已修复 {fixed_count} 个范围三类别标题")
 
 
+def add_excluded_categories_statement(doc, context):
+    """
+    在报告合规声明区域添加范围三排除类别说明
+
+    列出本次盘查范围内不进行量化的范围三类别（8, 13, 14, 15），
+    并说明原因（数据不具备重要性）。
+    """
+    print("  正在添加范围三排除类别说明...")
+
+    flags = context.get('flags', {})
+    # 收集所有排除的类别（flag=False 的类别）
+    excluded_nums = []
+    for i in range(1, 16):
+        flag_key = f'has_scope_3_category_{i}'
+        if not flags.get(flag_key, False):
+            excluded_nums.append(i)
+
+    if not excluded_nums:
+        print("    所有范围三类别均有排放数据，无需添加排除说明")
+        return
+
+    # 获取类别名称
+    scope_3_names = context.get('scope_3_category_names', {})
+    # scope_3_category_names 可能使用整数键或字符串键
+    excluded_names = []
+    for num in excluded_nums:
+        name = scope_3_names.get(f'category_{num}') or scope_3_names.get(num) or f'类别{num}'
+        excluded_names.append(f'类别{num}（{name}）')
+
+    # 生成排除说明文字
+    nums_str = '、'.join([str(n) for n in excluded_nums])
+    statement = (
+        f"本次盘查范围内，{nums_str}（{'、'.join(excluded_names)}）"
+        f"因数据不具备重要性，不进行量化。"
+    )
+
+    # 找到最后一个合规声明段落（无温室气体储存）作为插入参考点
+    insert_after = None
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if '无温室气体储存' in text or 'GHG Storage' in text:
+            insert_after = para
+            break
+
+    if insert_after is None:
+        # Fallback: 找无生物质燃烧排放之后的段落
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if '无生物质燃烧排放' in text:
+                insert_after = para
+                # 继续找最后一个声明
+                for p2 in doc.paragraphs:
+                    if '无温室气体储存' in p2.text or 'GHG Storage' in p2.text:
+                        insert_after = p2
+                break
+
+    if insert_after is None:
+        print("    未找到合规声明段落，跳过")
+        return
+
+    # 在合规声明段落后插入排除说明
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from copy import deepcopy
+
+    # 克隆参考段落的 XML 元素以保持样式
+    ref_element = insert_after._element
+    new_p = OxmlElement('w:p')
+
+    # 复制段落属性（样式、缩进等）
+    ref_pPr = ref_element.find(qn('w:pPr'))
+    if ref_pPr is not None:
+        new_pPr = deepcopy(ref_pPr)
+        new_p.append(new_pPr)
+
+    # 创建新的 run 并设置文本
+    new_r = OxmlElement('w:r')
+    # 复制 run 属性（字体等）从参考段落的第一个 run
+    ref_rPr = ref_element.find(qn('w:r') + '/' + qn('w:rPr'))
+    if ref_rPr is not None:
+        new_rPr = deepcopy(ref_rPr)
+        new_r.append(new_rPr)
+
+    new_t = OxmlElement('w:t')
+    new_t.text = statement
+    new_t.set(qn('xml:space'), 'preserve')
+    new_r.append(new_t)
+    new_p.append(new_r)
+
+    # 在参考段落后插入
+    ref_element.addnext(new_p)
+    print(f"    已添加排除类别说明: {statement[:80]}...")
+
+
 def clean_empty_category_tables_v2(doc, context):
     """
     删除没有数据的类别的标题段落和单位段落，但保留表格结构
@@ -2228,7 +2082,6 @@ def clean_empty_category_tables_v2(doc, context):
         if not has_ef_items:
             empty_ef_table_categories.append(i)
 
-    print(f"  空排放因子表类别: {empty_ef_table_categories}")  # 调试输出
 
     if not empty_categories and not empty_ef_table_categories:
         print("  所有类别都有数据，无需删除空类别标题")
@@ -2354,10 +2207,8 @@ def clean_empty_category_tables_v2(doc, context):
                 # 根据表格内容判断类型 - 确保库存表优先级最高
                 if is_inventory_table:
                     category_inventory_table_indices[cat_num] = table_idx
-                    print(f"  [DEBUG] 类别{cat_num} -> 库存表{table_idx}（行数={row_count}）")
                 elif is_ef_table:
                     category_ef_table_indices[cat_num] = table_idx
-                    print(f"  [DEBUG] 类别{cat_num} -> EF表{table_idx}（行数={row_count}）")
                 else:
                     # 如果无法确定类型，先检查是否有类似3.X.Y的编号模式，再决定类型
                     has_detail_number_pattern = False
@@ -2373,10 +2224,8 @@ def clean_empty_category_tables_v2(doc, context):
 
                     if has_detail_number_pattern:
                         category_inventory_table_indices[cat_num] = table_idx
-                        print(f"  [DEBUG] 类别{cat_num} -> 库存表{table_idx}（行数={row_count}，模式匹配）")
                     else:
                         category_ef_table_indices[cat_num] = table_idx
-                        print(f"  [DEBUG] 类别{cat_num} -> EF表{table_idx}（默认，行数={row_count}）")
                 
                 # 注意：不要 break，继续寻找该类别的其他表格（一个类别可能有 EF 表和 库存表）
                 # continue
