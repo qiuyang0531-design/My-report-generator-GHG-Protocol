@@ -1379,15 +1379,15 @@ def find_summary_table(doc):
 # Unicode 下标数字映射
 _SUB_DIGITS = str.maketrans('0123456789', '₀₁₂₃₄₅₆₇₈₉')
 
-def _chemical_formula_sub(match):
-    """正则回调：将匹配到的化学式中的数字转为 Unicode 下标"""
-    prefix = match.group(1)
-    digits = match.group(2)
-    suffix = match.group(3) or ''
-    return prefix + digits.translate(_SUB_DIGITS) + suffix
-
-# 匹配化学式：大写字母开头 + 数字 + 可选后缀（如 CO2, CH4, N2O, SF6, NF3, CO2e）
-_CHEM_PATTERN = re.compile(r'\b([A-Z][A-Za-z]?)(\d+)([a-z]?)\b')
+# 化学式精确替换列表：从长到短排列，避免部分匹配（CO2e 必须在 CO2 之前）
+_CHEM_REPLACEMENTS = [
+    ('CO2e', 'CO₂e'),
+    ('CO2', 'CO₂'),
+    ('CH4', 'CH₄'),
+    ('N2O', 'N₂O'),
+    ('SF6', 'SF₆'),
+    ('NF3', 'NF₃'),
+]
 
 
 def apply_chemical_subscripts(doc):
@@ -1395,18 +1395,40 @@ def apply_chemical_subscripts(doc):
     将文档中所有化学式数字转为 Unicode 下标（CO2→CO₂, CH4→CH₄ 等）。
     遍历段落、表格、页眉页脚中的所有 run。
     """
-    from docx.opc.constants import RELATIONSHIP_TYPE as RT
-    import copy
-
     processed_count = 0
+
+    def _needs_conversion(text):
+        """检查文本是否含有需要转换的化学式（未下标的原始形式）"""
+        for old, _new in _CHEM_REPLACEMENTS:
+            if old in text:
+                return True
+        return False
+
+    def _replace_in_text(text):
+        """对文本中所有化学式数字做下标替换"""
+        for old, new in _CHEM_REPLACEMENTS:
+            text = text.replace(old, new)
+        return text
 
     def _process_paragraph(para):
         nonlocal processed_count
+        # 先尝试逐 run 替换
+        any_changed = False
         for run in para.runs:
             old = run.text
-            new = _CHEM_PATTERN.sub(_chemical_formula_sub, old)
+            new = _replace_in_text(old)
             if new != old:
                 run.text = new
+                any_changed = True
+                processed_count += 1
+
+        # 若段落全文仍有未转换的化学式（跨 run 拆分导致），合并所有 run
+        if _needs_conversion(para.text):
+            full = _replace_in_text(para.text)
+            if para.runs:
+                para.runs[0].text = full
+                for r in para.runs[1:]:
+                    r.text = ''
                 processed_count += 1
 
     def _process_document(d):
