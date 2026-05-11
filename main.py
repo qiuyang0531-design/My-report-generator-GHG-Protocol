@@ -157,9 +157,13 @@ def prepare_context_with_formatting(context):
         cleaned = {}
         for key, value in d.items():
             if isinstance(value, str):
-                # 去除首尾空格，替换多个连续空格为单个空格
-                cleaned_value = re.sub(r'\s+', ' ', str(value).strip())
-                cleaned[key] = cleaned_value
+                # 去除首尾空格，合并多余空白（保留 \\n\\n 段落分隔）
+                v = str(value).strip()
+                v = v.replace('\r\n', '\n').replace('\r', '\n')
+                v = v.replace('\n\n', '\x00')
+                v = re.sub(r'\s+', ' ', v)
+                v = v.replace('\x00', '\n\n')
+                cleaned[key] = v
             elif isinstance(value, dict):
                 cleaned[key] = clean_strings_in_dict(value)
             elif isinstance(value, list):
@@ -1203,8 +1207,65 @@ def generate_report_from_xlsx(
     doc = Document(output_path)
     company_name = context.get('company_name', '')
 
-    # 设置统一的首行缩进：4个空格 ≈ 2个中文字符 ≈ 0.4厘米
-    first_line_indent = Cm(0.4)  # 约2个中文字符的宽度
+    # 首行缩进：2个中文字符宽度（五号字 = 10.5pt，2字符 = 21pt ≈ 0.74cm）
+    first_line_indent = Cm(0.74)
+
+    def _strip_leading_spaces(para):
+        """移除段落首 run 的前导空格，改用 first_line_indent 控制缩进"""
+        if para.runs:
+            first_run = para.runs[0]
+            first_run.text = first_run.text.lstrip(' \t')
+
+    def _split_para_by_newlines(para):
+        """将包含 \\n\\n 的段落拆分为多个段落，返回新创建的段落数"""
+        text = para.text
+        if '\n\n' not in text:
+            return 0
+        parts = [p.strip() for p in text.split('\n\n') if p.strip()]
+        if len(parts) <= 1:
+            return 0
+
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        from copy import deepcopy
+
+        # 保留原始 run 的格式（字体、大小等），取第一个 run 作为模板
+        orig_runs = list(para.runs)
+        ref_run = orig_runs[0] if orig_runs else None
+        ref_rPr = deepcopy(ref_run._element.find(qn('w:rPr'))) if ref_run is not None and ref_run._element.find(qn('w:rPr')) is not None else None
+
+        # 第一个段落内容放入当前段落
+        para.clear()
+        run = para.add_run(parts[0])
+        if ref_rPr is not None:
+            run._element.insert(0, deepcopy(ref_rPr))
+
+        # 在 body 中找到当前段落的位置，在其后插入新段落
+        body = para._element.getparent()
+        insert_idx = list(body).index(para._element)
+
+        for part_text in parts[1:]:
+            insert_idx += 1
+            p_el = OxmlElement('w:p')
+            # 段落属性：首行缩进
+            pPr = OxmlElement('w:pPr')
+            ind_el = OxmlElement('w:ind')
+            ind_el.set(qn('w:firstLine'), '420')  # 420 twips = 2 × 10.5pt
+            ind_el.set(qn('w:left'), '0')
+            pPr.append(ind_el)
+            p_el.append(pPr)
+            # 文本 run
+            r_el = OxmlElement('w:r')
+            if ref_rPr is not None:
+                r_el.append(deepcopy(ref_rPr))
+            t_el = OxmlElement('w:t')
+            t_el.text = part_text
+            t_el.set(qn('xml:space'), 'preserve')
+            r_el.append(t_el)
+            p_el.append(r_el)
+            body.insert(insert_idx, p_el)
+
+        return len(parts) - 1
 
     # 遍历所有段落，精确处理公司简介和经营范围
     for para in doc.paragraphs:
@@ -1212,20 +1273,23 @@ def generate_report_from_xlsx(
         if not text:
             continue
 
-        # 检查是否是公司简介段落（以公司名开头或包含公司简介特征）
-        if company_name in text[:50] or '楚能新能源' in text[:50]:
-            if len(text) > 100:  # 确保是长文本内容而非标题
-                # 设置统一的首行缩进，左缩进为0
+        # 检查是否是公司简介/经营范围段落（以公司名开头，且非量化方法说明段落）
+        is_profile = (company_name in text[:50] or '楚能新能源' in text[:50]) and len(text) > 100
+        is_emission_item = any(kw in text for kw in ['活动数据AD', '排放因子EF', '量化模型'])
+        if is_profile and not is_emission_item:
+                n = _split_para_by_newlines(para)
+                _strip_leading_spaces(para)
                 para.paragraph_format.first_line_indent = first_line_indent
                 para.paragraph_format.left_indent = 0
-                print(f"  已处理公司简介段落（长度: {len(text)} 字符）")
+                print(f"  已处理公司简介段落（长度: {len(para.text)} 字符，拆分出 {n} 段）")
 
         # 检查是否是经营范围段落（包含经营范围特征）
-        elif '经营范围' in text and len(text) > 100:
-            # 设置统一的首行缩进，左缩进为0
+        elif '经营范围' in text and len(text) > 100 and not is_emission_item:
+            n = _split_para_by_newlines(para)
+            _strip_leading_spaces(para)
             para.paragraph_format.first_line_indent = first_line_indent
             para.paragraph_format.left_indent = 0
-            print(f"  已处理经营范围段落（长度: {len(text)} 字符）")
+            print(f"  已处理经营范围段落（长度: {len(para.text)} 字符，拆分出 {n} 段）")
 
     # 7. 设置表2的列宽相等
     print(f"\n[步骤7] 设置表2列宽...")

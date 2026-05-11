@@ -53,12 +53,22 @@ def safe_get_cell(row, col_idx):
 
 
 def clean_multiline_text(value: str) -> str:
-    """清理多行文本，去除多余空白"""
+    """清理多行文本，保留段落分隔（\\n\\n）"""
     if value is None:
         return ''
     if isinstance(value, str):
-        value = re.sub(r'[\n\r]+', ' ', value)
-        value = re.sub(r'\s+', ' ', value).strip()
+        # 规范化换行符
+        value = value.replace('\r\n', '\n').replace('\r', '\n')
+        # 临时保护段落分隔
+        value = value.replace('\n\n', '\x00')
+        # 段落内换行变空格
+        value = re.sub(r'\n+', ' ', value)
+        # 恢复段落分隔
+        value = value.replace('\x00', '\n\n')
+        # 清理多余空格和制表符（保留段落分隔符）
+        value = re.sub(r'[ \t]+', ' ', value)
+        # 清理段落分隔符前后空格
+        value = re.sub(r' ?\n\n ?', '\n\n', value).strip()
     return value
 
 
