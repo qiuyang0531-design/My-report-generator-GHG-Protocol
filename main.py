@@ -1234,6 +1234,10 @@ def generate_report_from_xlsx(
         ref_run = orig_runs[0] if orig_runs else None
         ref_rPr = deepcopy(ref_run._element.find(qn('w:rPr'))) if ref_run is not None and ref_run._element.find(qn('w:rPr')) is not None else None
 
+        # 保存原始段落的行距设置（1.5 倍行距 = 360 twips）
+        ref_pPr = para._element.find(qn('w:pPr'))
+        ref_spacing = deepcopy(ref_pPr.find(qn('w:spacing'))) if ref_pPr is not None and ref_pPr.find(qn('w:spacing')) is not None else None
+
         # 第一个段落内容放入当前段落
         para.clear()
         run = para.add_run(parts[0])
@@ -1247,12 +1251,14 @@ def generate_report_from_xlsx(
         for part_text in parts[1:]:
             insert_idx += 1
             p_el = OxmlElement('w:p')
-            # 段落属性：首行缩进
+            # 段落属性：首行缩进 + 行距
             pPr = OxmlElement('w:pPr')
             ind_el = OxmlElement('w:ind')
             ind_el.set(qn('w:firstLine'), '420')  # 420 twips = 2 × 10.5pt
             ind_el.set(qn('w:left'), '0')
             pPr.append(ind_el)
+            if ref_spacing is not None:
+                pPr.append(deepcopy(ref_spacing))
             p_el.append(pPr)
             # 文本 run
             r_el = OxmlElement('w:r')
