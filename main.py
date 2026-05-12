@@ -1216,6 +1216,15 @@ def generate_report_from_xlsx(
             first_run = para.runs[0]
             first_run.text = first_run.text.lstrip(' \t')
 
+    def _remove_first_line_chars(para):
+        """移除 w:firstLineChars 属性，避免其覆盖 w:firstLine 的缩进设置"""
+        from docx.oxml.ns import qn
+        pPr = para._element.find(qn('w:pPr'))
+        if pPr is not None:
+            ind = pPr.find(qn('w:ind'))
+            if ind is not None:
+                ind.attrib.pop(qn('w:firstLineChars'), None)
+
     def _split_para_by_newlines(para):
         """将包含 \\n\\n 的段落拆分为多个段落，返回新创建的段落数"""
         text = para.text
@@ -1287,6 +1296,8 @@ def generate_report_from_xlsx(
                 _strip_leading_spaces(para)
                 para.paragraph_format.first_line_indent = first_line_indent
                 para.paragraph_format.left_indent = 0
+                # 移除模板遗留的 firstLineChars，避免覆盖 firstLine 的设置
+                _remove_first_line_chars(para)
                 print(f"  已处理公司简介段落（长度: {len(para.text)} 字符，拆分出 {n} 段）")
 
         # 检查是否是经营范围段落（包含经营范围特征）
@@ -1295,6 +1306,7 @@ def generate_report_from_xlsx(
             _strip_leading_spaces(para)
             para.paragraph_format.first_line_indent = first_line_indent
             para.paragraph_format.left_indent = 0
+            _remove_first_line_chars(para)
             print(f"  已处理经营范围段落（长度: {len(para.text)} 字符，拆分出 {n} 段）")
 
     # 7. 设置表2的列宽相等

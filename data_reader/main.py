@@ -272,7 +272,7 @@ class ExcelDataReaderRefactored(BaseReader):
                     else:
                         m_info['ad'] = get_clean_desc(f"根据{company}在{period}内的员工出勤总工时推算BOD排放量。")
                     m_info['ef'] = get_clean_desc(
-                        f"EF=Bo*MCF=0.18（kgCH4/kgBOD）；所需的参数包括Bo甲烷产生最大能力、MCF甲烷修正因子和人均BOD产生量，"
+                        f"EF=Bo*MCF=0.18（kgCH4/kgBOD），所需的参数包括Bo甲烷产生最大能力、MCF甲烷修正因子和人均BOD产生量，"
                         f"分别来源于IPCC《2006 年国家温室气体清单指南》第5卷第6章表6.2、表6.3和表6.4。其中Bo取缺省因子0.6，"
                         f"MCF取0.3，因{company}的生活废水工业废水处理同在耗氧处理厂中，管理不完善而保守选取0.3。"
                     )
@@ -286,7 +286,7 @@ class ExcelDataReaderRefactored(BaseReader):
                     else:
                         m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds or '相关报表'}{period}生产过程产生的工业废水处理量及进出口COD浓度的统计。")
                     m_info['ef'] = get_clean_desc(
-                        f"EF=Bo*MCF=0.075（kgCH4/kgCOD）；所需的参数包括Bo甲烷产生最大能力、MCF甲烷修正因子，"
+                        f"EF=Bo*MCF=0.075（kgCH4/kgCOD），所需的参数包括Bo甲烷产生最大能力、MCF甲烷修正因子，"
                         f"分别来源于IPCC《2006 年国家温室气体清单指南》第5卷第6章公式6.1、表6.8。其中Bo取缺省因子0.25，"
                         f"MCF取0.3，因{company}的生活废水工业废水处理同在耗氧处理厂中，管理不完善保守选取0.3。"
                     )
@@ -300,7 +300,19 @@ class ExcelDataReaderRefactored(BaseReader):
                         m_info['ad'] = get_clean_desc(_orig_ad)
                     else:
                         m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds or '相关报表'}{period}{fuel_clean}的统计。")
-                    m_info['ef'] = get_clean_desc(f"所需的参数为设备制冷剂充装量，量化采用质量平衡法，排放因子为 1kgGHG/kg。数据来源于{curr_ef_ref}。")
+                    m_info['ef'] = get_clean_desc(f"所需的参数为设备制冷剂充装量，量化采用质量平衡法，排放因子为 1kgGHG/kg。")
+
+                # 5. CO2灭火器
+                elif any(x in m_name for x in ['灭火器', '灭火系统']):
+                    if ds and ds != '相关报表':
+                        m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds}{period}{fuel_clean}的统计。")
+                    elif _has_specific_source(_orig_ad):
+                        m_info['ad'] = get_clean_desc(_orig_ad)
+                    else:
+                        m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds or '相关报表'}{period}{fuel_clean}的统计。")
+                    m_info['ef'] = get_clean_desc(
+                        f"所需的参数为CO2灭火器充装量，量化采用质量平衡法，排放因子为 1kgGHG/kg。"
+                    )
 
                 # --- 分支 A：固体燃料 ---
                 elif is_solid(m_name) or "固体燃料" in m_name:
@@ -317,8 +329,8 @@ class ExcelDataReaderRefactored(BaseReader):
                         m_info['ad'] = get_clean_desc(ad_text)
 
                     m_info['ef'] = get_clean_desc(
-                        f"所需的参数包括{fuel_list_str}低位发热量、单位热值含碳量、碳氧化率；"
-                        f"数据来源于{curr_ef_ref} 附表A.1常用化石燃料相关参数缺省值；"
+                        f"所需的参数包括{fuel_list_str}低位发热量、单位热值含碳量、碳氧化率，"
+                        f"数据来源于{curr_ef_ref} 附表A.1常用化石燃料相关参数缺省值，"
                         f"固体燃料燃烧产生CO2、CH4、N2O三类温室气体热值排放系数来源于《IPCC-2006缺省值》，GWP值来源于{gwp_ref}。"
                     )
 
@@ -345,15 +357,89 @@ class ExcelDataReaderRefactored(BaseReader):
                     ef_segs = []
                     if fuels:
                         f_ref = next((v for k,v in ef_ref_map.items() if '煤气' in k), curr_ef_ref)
-                        ef_segs.append(f"{'、'.join(fuels)}量化所需的参数包括低位发热量、碳氧化率；数据来源于{f_ref}附表A.1；"
+                        ef_segs.append(f"{'、'.join(fuels)}量化所需的参数包括低位发热量、碳氧化率，数据来源于{f_ref}附表A.1，"
                                        f"{'、'.join(fuels)}燃烧产生CO2、CH4、N2O三类温室气体热值排放系数来源于《IPCC-2006缺省值》")
                     if mats:
                         m_ref = next((v for k,v in ef_ref_map.items() if any(x in k for x in ['苯', '油'])), curr_ef_ref)
                         ef_segs.append(f"{'、'.join(mats)}量化所需的参数为活动数据及对应的单位排放因子，数据来源于{m_ref}")
 
-                    m_info['ef'] = get_clean_desc("；".join(ef_segs) + f"；GWP值来源于{gwp_ref}。")
+                    m_info['ef'] = get_clean_desc("，".join(ef_segs) + f"，GWP值来源于{gwp_ref}。")
 
-                # --- 分支 C：常规项（天然气、汽油等） ---
+                # --- 分支 C：制程排放 ---
+                elif "制程" in m_name:
+                    # 从 scope1_process_emissions_items 构建 facility 映射
+                    facility_map = {}
+                    for item in result.get('scope1_process_emissions_items', []):
+                        src = item.get('emission_source', '')
+                        fac = item.get('facility', '')
+                        if src and src not in facility_map:
+                            facility_map[src] = fac
+
+                    # 遍历表1数据，按 H列（数据来源）分组制程排放项
+                    ds_groups = {}  # data_source -> [emission_sources]
+                    for item in all_table1:
+                        ds_val = item.get('data_source', '')
+                        src = item.get('emission_source', '')
+                        if src not in facility_map:
+                            continue  # 非制程排放项
+                        # 合并同名 reference（如两份同来源条目共享同一 data_source）
+                        existing_key = None
+                        for k in ds_groups:
+                            if ds_val == k:
+                                existing_key = k
+                                break
+                        key = existing_key if existing_key else ds_val
+                        if key not in ds_groups:
+                            ds_groups[key] = []
+                        if src not in ds_groups[key]:
+                            ds_groups[key].append(src)
+
+                    # 区分为含碳物料和固碳产品
+                    emitting_groups = []   # [(ds, [srcs])]
+                    sequestering_groups = []  # [(ds, [srcs])]
+                    for ds_val, sources in ds_groups.items():
+                        emit_srcs = []
+                        seq_srcs = []
+                        for src in sources:
+                            fac = facility_map.get(src, '')
+                            if fac in ('固碳产品', '外售'):
+                                seq_srcs.append(src)
+                            else:
+                                emit_srcs.append(src)
+                        if emit_srcs:
+                            emitting_groups.append((ds_val, emit_srcs))
+                        if seq_srcs:
+                            sequestering_groups.append((ds_val, seq_srcs))
+
+                    # 构建 AD 描述
+                    ad_parts = []
+
+                    if emitting_groups:
+                        all_emitting = []
+                        for _, srcs in emitting_groups:
+                            all_emitting.extend(srcs)
+                        ad_parts.append(f"工业过程中含碳物料（{'、'.join(all_emitting)}）产生排放")
+                        for ds_val, srcs in emitting_groups:
+                            ad_parts.append(f"{'、'.join(srcs)}的活动数据来源于{ds_val}")
+
+                    if sequestering_groups:
+                        all_seq = []
+                        for _, srcs in sequestering_groups:
+                            all_seq.extend(srcs)
+                        ad_parts.append(f"生产过程中产生固碳产品（{'、'.join(all_seq)}），抵扣排放")
+                        for ds_val, srcs in sequestering_groups:
+                            ad_parts.append(f"{'、'.join(srcs)}的活动数据来源于{ds_val}")
+
+                    m_info['ad'] = get_clean_desc("；".join(ad_parts) + f"。统计周期为{period}。")
+
+                    # EF：使用原始配置中的准确描述，去掉不存在的 A.3 引用
+                    if _orig_ef and len(_orig_ef) > 10:
+                        ef_text = _orig_ef.replace('及A.3', '')
+                        m_info['ef'] = get_clean_desc(ef_text)
+                    else:
+                        m_info['ef'] = get_clean_desc(f"来源于{curr_ef_ref}附表A.2缺省值。")
+
+                # --- 分支 D：常规项（天然气、汽油等） ---
                 else:
                     # 动态匹配 AD 来源 (H列)
                     s_key = next((k for k in source_map.keys() if k in m_name or m_name in k), None)
@@ -370,12 +456,12 @@ class ExcelDataReaderRefactored(BaseReader):
                         m_info['ad'] = get_clean_desc(ad_text)
 
                     if any(f in m_name for f in ['气', '油', '燃']):
-                        m_info['ef'] = get_clean_desc(f"所需的参数包括{fuel_clean}低位发热量、碳氧化率；数据来源于{curr_ef_ref} 附表A.1常用化石燃料相关参数缺省值；"
+                        m_info['ef'] = get_clean_desc(f"所需的参数包括{fuel_clean}低位发热量、碳氧化率，数据来源于{curr_ef_ref} 附表A.1常用化石燃料相关参数缺省值，"
                                                      f"{fuel_clean}燃烧产生CO2、CH4、N2O三类温室气体热值排放系数来源于《IPCC-2006缺省值》，GWP值来源于{gwp_ref}。")
                     elif '电力' in m_name:
-                        m_info['ef'] = get_clean_desc(f"所需的参数为外购电力二氧化碳排放因子；数据来源于{curr_ef_ref}；GWP值来源于{gwp_ref}。")
+                        m_info['ef'] = get_clean_desc(f"所需的参数为外购电力二氧化碳排放因子，数据来源于{curr_ef_ref}，GWP值来源于{gwp_ref}。")
                     else:
-                        m_info['ef'] = get_clean_desc(f"所需的参数为该类别排放因子；数据来源于{curr_ef_ref}；GWP值来源于{gwp_ref}。") 
+                        m_info['ef'] = get_clean_desc(f"所需的参数为该类别排放因子，数据来源于{curr_ef_ref}，GWP值来源于{gwp_ref}。")
 
         # =====================================================================
 
