@@ -1611,7 +1611,31 @@ def clean_excessive_blank_lines(doc):
 
     print(f"  删除了 {removed_count} 个多余空行")
 
+    # 3. 清理段落内部残留的 <w:br/> 尾随空 run
+    #    模板中 {% set %} 嵌入在 EF 段落内（换行分隔），渲染后 <w:br/> + 空 <w:t> 残留
+    #    导致段落内部多出一个空行，与段间空行叠加产生"连续两行"视觉
+    br_cleaned = 0
+    for i in range(start_idx, end_idx):
+        if i >= len(doc.paragraphs):
+            break
+        para = doc.paragraphs[i]
+        runs = para._element.findall(
+            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r')
+        if not runs:
+            continue
+        last_run = runs[-1]
+        brs = last_run.findall(
+            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}br')
+        if brs:
+            t_elems = last_run.findall(
+                '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+            t_text = ''.join(t.text or '' for t in t_elems).strip()
+            if not t_text:
+                para._element.remove(last_run)
+                br_cleaned += 1
 
+    if br_cleaned:
+        print(f"  清理了 {br_cleaned} 个段落内部的残留 <w:br/> 空行")
 
 
 def clean_empty_category_tables(doc, context):
@@ -2008,83 +2032,18 @@ def fix_scope3_category_headers(doc):
 
     print(f"    找到范围三章节在段落 {scope3_section_start}")
 
-    # 新增：在范围三标题之前插入分组标题"（三）范围三其他类别相关排放"
-    # 优先更新已存在的模板段落（避免重复），否则插入新段落
-    has_group_header = False
-    # 扩大搜索范围，在 scope3 章节前后查找已有标题
+    # 确保范围三分组标题不带编号（如已存在"（三）"则去除）
     for i in range(max(0, scope3_section_start - 10), min(len(paragraphs_list), scope3_section_start + 5)):
         if i < len(paragraphs_list):
             text = paragraphs_list[i].text.strip()
             if '（三）' in text and ('范围三' in text or '其他类别' in text):
-                has_group_header = True
-                break
-            # 找到模板中已有的无编号版本，直接更新文本
-            if '范围三其他类别相关排放' in text and '（三）' not in text:
                 para = paragraphs_list[i]
                 for run in para.runs:
-                    if '范围三其他类别相关排放' in run.text:
-                        run.text = run.text.replace('范围三其他类别相关排放', '（三）范围三其他类别相关排放')
+                    if '（三）' in run.text:
+                        run.text = run.text.replace('（三）', '')
                         break
-                has_group_header = True
-                print(f"    已更新模板段落 {i} 为 '（三）范围三其他类别相关排放'")
+                print(f"    已移除段落 {i} 的 '（三）' 前缀")
                 break
-
-    if not has_group_header:
-        # 在"范围三：其他间接温室气体排放"之前插入分组标题
-        target_para = paragraphs_list[scope3_section_start]
-
-        # 复用模板中已有的 "范围三其他类别相关排放" 段落样式
-        # 查找模板中同一样式的段落进行克隆，避免创建无样式的 Normal 段落
-        from docx.oxml import OxmlElement
-        from docx.oxml.ns import qn
-
-        template_header = None
-        for p in doc.paragraphs:
-            if '范围三其他类别相关排放' in p.text:
-                template_header = p
-                break
-
-        if template_header is not None:
-            from copy import deepcopy
-            new_para = deepcopy(template_header._element)
-            # 修改文本为带编号的版本
-            for r_elem in new_para.findall(qn('w:r')):
-                for t_elem in r_elem.findall(qn('w:t')):
-                    if '范围三其他类别相关排放' in (t_elem.text or ''):
-                        t_elem.text = t_elem.text.replace('范围三其他类别相关排放', '（三）范围三其他类别相关排放')
-                        break
-            # 在目标段落前插入新段落
-            target_para._element.addprevious(new_para)
-            print(f"    已在范围三章节前插入分组标题（克隆模板样式）")
-        else:
-            # 后备方案：手动创建但设置正确样式
-            new_para = OxmlElement('w:p')
-            pPr = OxmlElement('w:pPr')
-            # 设置样式为 List Paragraph
-            pStyle = OxmlElement('w:pStyle')
-            pStyle.set(qn('w:val'), 'ListParagraph')
-            pPr.append(pStyle)
-            jc = OxmlElement('w:jc')
-            jc.set(qn('w:val'), 'left')
-            pPr.append(jc)
-            new_para.append(pPr)
-
-            r = OxmlElement('w:r')
-            rPr = OxmlElement('w:rPr')
-            b = OxmlElement('w:b')
-            rPr.append(b)
-            sz = OxmlElement('w:sz')
-            sz.set(qn('w:val'), '24')
-            rPr.append(sz)
-            r.append(rPr)
-
-            t = OxmlElement('w:t')
-            t.text = '（三）范围三其他类别相关排放'
-            r.append(t)
-            new_para.append(r)
-
-            target_para._element.addprevious(new_para)
-            print(f"    已在范围三章节前插入分组标题（后备方案）")
 
     # 在范围三章节内查找只有编号没有类别名称的标题
     fixed_count = 0
