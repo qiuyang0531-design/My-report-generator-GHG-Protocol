@@ -1538,8 +1538,9 @@ def apply_chemical_subscripts(doc):
 def clean_excessive_blank_lines(doc):
     """
     清理量化方法说明部分过多的空行
-    策略：确保排放源之间只有一行物理间距
+    策略：每个排放源项的描述后保留一个空行，删除描述前的空行
     """
+    import re
     print("  正在清理量化方法说明部分的空行...")
 
     # 找到量化方法说明章节
@@ -1567,9 +1568,9 @@ def clean_excessive_blank_lines(doc):
 
     print(f"  量化方法说明部分: {start_idx} 到 {end_idx}")
 
-    # 在该部分内，删除连续的空段落，保留最多1个空行
+    # 1. 删除连续的空段落，保留最多1个空行
     consecutive_empty = 0
-    indices_to_remove = []
+    indices_to_remove = set()
 
     for i in range(start_idx, end_idx):
         if i >= len(doc.paragraphs):
@@ -1577,11 +1578,27 @@ def clean_excessive_blank_lines(doc):
         text = doc.paragraphs[i].text.strip()
         if not text:
             consecutive_empty += 1
-            # 如果超过1个连续空行，标记删除
             if consecutive_empty > 1:
-                indices_to_remove.append(i)
+                indices_to_remove.add(i)
         else:
             consecutive_empty = 0
+
+    # 2. 删除范围标题与首个排放源之间的空行
+    #    模式：范围X：... → [空行] → （一）排放源...
+    #    仅删除第一个排放源前的空行，后续排放源之间的空行保留
+    scope_header_re = re.compile(r'^范围[一二三]：')
+    emission_title_re = re.compile(r'^（[一二三四五六七八九十]+）排放源')
+    for i in range(start_idx + 1, end_idx - 1):
+        if i >= len(doc.paragraphs) - 1:
+            break
+        prev_text = doc.paragraphs[i - 1].text.strip() if i > 0 else ''
+        curr_text = doc.paragraphs[i].text.strip()
+        next_text = doc.paragraphs[i + 1].text.strip()
+        # 当前段落为空，前一个是范围标题，后一个是排放源标题 → 删除此空行
+        if (not curr_text
+                and scope_header_re.match(prev_text)
+                and emission_title_re.match(next_text)):
+            indices_to_remove.add(i)
 
     # 从后往前删除
     removed_count = 0
