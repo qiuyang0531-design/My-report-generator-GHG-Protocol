@@ -1,0 +1,38 @@
+{
+  "_说明": "量化模型参考文件配置。修改此文件即可更新报告中的量化模型描述，无需改代码。格式：scope > 排放源key > model",
+  "scope_1": {
+    "natural_gas": "来源于《2006 年 IPCC 国家温室气体清单指南》第2卷第2章公式2.1",
+    "lpg": "来源于《2006 年 IPCC 国家温室气体清单指南》第2卷第2章公式2.1",
+    "solid_fuels": "方法学来自标准ISO 14064-1:2018/ 6.2",
+    "byproducts": "方法学来自标准ISO 14064-1:2018/ 6.2",
+    "diesel_transport": "来源于《2006 年 IPCC 国家温室气体清单指南》第2卷第2章公式2.1",
+    "gasoline_transport": "来源于《2006 年 IPCC 国家温室气体清单指南》第2卷第2章公式2.1",
+    "ac_refrigerant": "来源于IPCC《2006 年国家温室气体清单指南》第3卷第7章公式7.13",
+    "fire_extinguisher": "来源于IPCC《2006 年国家温室气体清单指南》V3_7_Ch7 7.6.2.2",
+    "septic_tank": "来源于IPCC《2006 年国家温室气体清单指南》第5卷第6章公式6.1、6.3",
+    "anaerobic_pond": "来源于IPCC《2006 年国家温室气体清单指南》第5卷第6章公式6.1、6.4",
+    "sf6_switch": "该方法学来自标准ISO14064-1：2018/ 6.2",
+    "process_co2": "来源于《2006 年 IPCC 国家温室气体清单指南》第2卷第2章公式2.1"
+  },
+  "scope_2": {
+    "electricity": "来源于《工业其他行业企业温室气体排放核算方法与报告指南》公式14",
+    "electricity_market": "来源于《工业其他行业企业温室气体排放核算方法与报告指南》公式14"
+  },
+  "scope_3": {
+    "category_1": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 1:Purchased Goods and Services的Average-data method和Spend-based method",
+    "category_2": "来源于《Scope 3计算指南》的Spend-based method",
+    "category_3": "来源于《Scope 3计算指南》Category 3的Average-data method",
+    "category_4": "来源于《Scope 3计算指南》Category 4的Distance-based method",
+    "category_5": "来源于《Scope 3计算指南》Category 5的Waste-type-specific method",
+    "category_6": "来源于《Scope 3计算指南》Category 6",
+    "category_7": "来源于《Scope 3计算指南》Category 7",
+    "category_8": "来源于《Scope 3计算指南》Category 8",
+    "category_9": "来源于《Scope 3计算指南》Category 9: Downstream Transportation",
+    "category_10": "来源于《Scope 3计算指南》Category 10: Processing of sold Products",
+    "category_11": "来源于《Scope 3计算指南》Category 11: Use of Sold Products",
+    "category_12": "来源于《Scope 3计算指南》Category 12: End-of-Life Treatment",
+    "category_13": "来源于《Scope 3计算指南》Category 13: Downstream Leased Assets",
+    "category_14": "来源于《Scope 3计算指南》Category 14: Franchises",
+    "category_15": "来源于《Scope 3计算指南》Category 15: Investments"
+  }
+}
