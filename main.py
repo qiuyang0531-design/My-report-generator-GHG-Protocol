@@ -1325,6 +1325,13 @@ def generate_report_from_xlsx(
     doc.save(output_path)
     print("段落格式统一完成")
 
+    # 7.5 插入范围三类别1材料列表副标题（标题和量化模型之间）
+    print(f"\n[步骤7.5] 插入范围三类别1材料列表副标题...")
+    _insert_category1_material_subtitle(doc, context)
+
+    doc.save(output_path)
+    print("材料列表副标题插入完成")
+
     # 8. 清理量化方法说明部分的过多空行
     print(f"\n[步骤8] 清理量化方法说明部分的空行...")
     clean_excessive_blank_lines(doc)
@@ -1533,6 +1540,70 @@ def apply_chemical_subscripts(doc):
 
     _process_document(doc)
     print(f"  化学式下标转换: {processed_count} 处")
+
+
+def _insert_category1_material_subtitle(doc, context):
+    """在范围三类别1标题后插入材料列表副标题段落"""
+    subtitle = context.get('scope3_category1_material_subtitle', '')
+    if not subtitle:
+        print("  未找到 scope3_category1_material_subtitle，跳过")
+        return
+
+    # 查找标题段落：匹配中文编号 + "外购商品"
+    target_para = None
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if re.match(r'（[一二三四五六七八九十]+）', text) and '外购商品' in text:
+            target_para = para
+            break
+
+    if target_para is None:
+        print("  未找到范围三类别1标题段落，跳过")
+        return
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from copy import deepcopy
+
+    target_el = target_para._element
+
+    # 创建新段落
+    new_p = OxmlElement('w:p')
+
+    # 复制段落属性（pPr），移除编号属性避免被自动编号
+    target_pPr = target_el.find(qn('w:pPr'))
+    if target_pPr is not None:
+        new_pPr = deepcopy(target_pPr)
+        numPr = new_pPr.find(qn('w:numPr'))
+        if numPr is not None:
+            new_pPr.remove(numPr)
+        # 确保首行缩进与正文一致（不额外缩进）
+        ind = new_pPr.find(qn('w:ind'))
+        if ind is not None:
+            # 保留左缩进，清除悬挂/首行缩进
+            ind.attrib.pop(qn('w:firstLine'), None)
+            ind.attrib.pop(qn('w:hanging'), None)
+        new_p.append(new_pPr)
+
+    # 创建 run 并设置文本
+    r_el = OxmlElement('w:r')
+    target_runs = target_el.findall(qn('w:r'))
+    if target_runs:
+        target_rPr = target_runs[0].find(qn('w:rPr'))
+        if target_rPr is not None:
+            r_el.append(deepcopy(target_rPr))
+
+    t_el = OxmlElement('w:t')
+    t_el.text = subtitle
+    t_el.set(qn('xml:space'), 'preserve')
+    r_el.append(t_el)
+    new_p.append(r_el)
+
+    # 插入到标题段落后
+    parent = target_el.getparent()
+    target_idx = list(parent).index(target_el)
+    parent.insert(target_idx + 1, new_p)
+    print(f"  已插入材料列表副标题: {subtitle[:80]}...")
 
 
 def clean_excessive_blank_lines(doc):

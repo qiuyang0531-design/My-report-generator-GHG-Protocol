@@ -119,7 +119,7 @@ class ReportConfig:
                 # (十四) 类别1
                 'category_1': {
                     'name': '外购商品和服务',
-                    'model': '来源于《Technical Guidance for Calculating Scope 3 Emissions》的Average-data method和Spend-based method',
+                    'model': '来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 1:Purchased Goods and Services的Average-data method和Spend-based method',
                     'ad': f'来源于{c}提供《物资收发存汇总表》入库量，涵盖铁矿石、生石灰、废钢等原材料。',
                     'ef': '来源于ecoinvent 3.10-cut off及SupplyChainGHGEmissionFactors数据库。'
                 },

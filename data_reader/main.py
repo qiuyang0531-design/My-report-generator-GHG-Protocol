@@ -258,6 +258,9 @@ class ExcelDataReaderRefactored(BaseReader):
                         # 更新 name：添加材料列表
                         material_list = '、'.join(all_materials)
                         m_info['name'] = f"外购商品和服务（包括{material_list}，CO2排放）"
+                        # 存储材料列表副标题，供 main.py 后处理插入独立段落
+                        result['scope3_category1_material_subtitle'] = \
+                            f"包括{material_list}（CO₂排放）"
                         continue
 
                 # =====================================================================
