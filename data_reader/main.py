@@ -202,6 +202,65 @@ class ExcelDataReaderRefactored(BaseReader):
                     fuel_clean = fuel_clean[start+1:end]
 
                 # =====================================================================
+                # 范围三类别1（外购商品和服务）：从 Excel 动态生成 AD/EF 描述
+                # =====================================================================
+                if scope == 'scope_3' and m_key == 'category_1':
+                    # 从 scope3_category1 获取类别1排放源名单
+                    cat1_sources = [i.get('emission_source', '')
+                                    for i in result.get('scope3_category1', [])]
+                    # 在 scope2_3_items 中匹配（获取 H列数据来源）
+                    cat1_table1 = [i for i in result.get('scope2_3_items', [])
+                                   if i.get('emission_source', '') in cat1_sources]
+                    cat1_ef = result.get('cat1_ef_items', [])
+
+                    if cat1_table1:
+                        # 获取所有材料名（去掉"生产"等后缀）
+                        def _shorten_mat(name):
+                            return name.replace('生产', '').strip()
+
+                        all_materials = [_shorten_mat(i.get('emission_source', ''))
+                                         for i in cat1_table1
+                                         if i.get('emission_source')]
+
+                        # 按数据来源分组
+                        ds_groups = {}
+                        for item in cat1_table1:
+                            ds = item.get('data_source', '')
+                            mat = _shorten_mat(item.get('emission_source', ''))
+                            if ds not in ds_groups:
+                                ds_groups[ds] = []
+                            ds_groups[ds].append(mat)
+
+                        # 构建 AD 描述
+                        ad_parts = []
+                        for ds, mats in ds_groups.items():
+                            mats_text = '、'.join(mats)
+                            ad_parts.append(f"{mats_text}的活动数据来源于{company}提供{ds}")
+                        ad_text = f"{period}期间，" + "；".join(ad_parts) + "。"
+                        m_info['ad'] = get_clean_desc(ad_text)
+
+                        # 按 EF 来源分组
+                        ef_source_map = {}
+                        for ef_item in cat1_ef:
+                            src = ef_item.get('emission_source_cat1', '')
+                            ef_db = ef_item.get('cat1_emission_source', '')
+                            if ef_db not in ef_source_map:
+                                ef_source_map[ef_db] = []
+                            ef_source_map[ef_db].append(_shorten_mat(src))
+
+                        ef_parts = []
+                        for ef_db, mats in ef_source_map.items():
+                            mats_text = '、'.join(mats)
+                            ef_parts.append(f"{mats_text}排放因子来源于《{ef_db}》")
+                        ef_text = "；".join(ef_parts) + "。"
+                        m_info['ef'] = get_clean_desc(ef_text)
+
+                        # 更新 name：添加材料列表
+                        material_list = '、'.join(all_materials)
+                        m_info['name'] = f"外购商品和服务（包括{material_list}，CO2排放）"
+                        continue
+
+                # =====================================================================
                 # 范围三优先处理：保留 report_config.py 中已定义的精确 EF/AD 描述
                 # =====================================================================
                 if scope == 'scope_3':
@@ -459,7 +518,7 @@ class ExcelDataReaderRefactored(BaseReader):
                         m_info['ef'] = get_clean_desc(f"所需的参数包括{fuel_clean}低位发热量、碳氧化率，数据来源于{curr_ef_ref} 附表A.1常用化石燃料相关参数缺省值，"
                                                      f"{fuel_clean}燃烧产生CO2、CH4、N2O三类温室气体热值排放系数来源于《IPCC-2006缺省值》，GWP值来源于{gwp_ref}。")
                     elif '电力' in m_name:
-                        m_info['ef'] = get_clean_desc(f"所需的参数为外购电力二氧化碳排放因子，数据来源于{curr_ef_ref}，GWP值来源于{gwp_ref}。")
+                        m_info['ef'] = get_clean_desc(f"所需的参数为外购电力二氧化碳排放因子，数据来源于{curr_ef_ref}。")
                     else:
                         m_info['ef'] = get_clean_desc(f"所需的参数为该类别排放因子，数据来源于{curr_ef_ref}，GWP值来源于{gwp_ref}。")
 
