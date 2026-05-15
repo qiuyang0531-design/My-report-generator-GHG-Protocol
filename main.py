@@ -893,7 +893,7 @@ def prepare_context_with_formatting(context):
 
 def generate_report_from_xlsx(
     xlsx_path=DEFAULT_DY_XLSX_NAME,
-    template_path="template.docx",
+    template_path="template-1.docx",
     output_path="carbon_report.docx"
 ):
     """
@@ -1325,12 +1325,24 @@ def generate_report_from_xlsx(
     doc.save(output_path)
     print("段落格式统一完成")
 
-    # 7.5 插入范围三类别1材料列表副标题（标题和量化模型之间）
-    print(f"\n[步骤7.5] 插入范围三类别1材料列表副标题...")
+    # 7.5 插入范围三各类别材料列表副标题（标题和量化模型之间）
+    print(f"\n[步骤7.5] 插入范围三各类别材料列表副标题...")
     _insert_category1_material_subtitle(doc, context)
 
     doc.save(output_path)
     print("材料列表副标题插入完成")
+
+    # 7.6 统一全文英文括号为中文括号
+    print(f"\n[步骤7.6] 统一中英文括号...")
+    convert_parentheses_to_chinese(doc)
+
+    doc.save(output_path)
+    print("括号统一完成")
+
+    # 7.7. 插入 Word TOC 域目录
+    print(f"\n[步骤7.7] 插入 Word TOC 域目录...")
+    insert_toc_field(doc)
+    doc.save(output_path)
 
     # 8. 清理量化方法说明部分的过多空行
     print(f"\n[步骤8] 清理量化方法说明部分的空行...")
@@ -1397,6 +1409,71 @@ def generate_report_from_xlsx(
     apply_chemical_subscripts(doc)
     doc.save(output_path)
     print("化学式下标转换完成")
+
+    # 10.7. 最终全局空行清理（简单可靠：删除连续空段落，最多保留1个）
+    print(f"\n[步骤10.7] 最终全局空行清理...")
+    final_removed = 0
+    consecutive = 0
+    to_remove = []
+    ns_w = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    for i, para in enumerate(doc.paragraphs):
+        if not para.text.strip():
+            # 检查段落是否包含图片、图表等非文字内容
+            drawings = para._element.findall('.//' + ns_w + 'drawing')
+            if drawings:
+                consecutive = 0  # 图片段落，不计为空段落
+                continue
+            consecutive += 1
+            if consecutive > 1:
+                to_remove.append(i)
+        else:
+            consecutive = 0
+    for idx in reversed(to_remove):
+        p = doc.paragraphs[idx]
+        p._element.getparent().remove(p._element)
+        final_removed += 1
+    doc.save(output_path)
+    print(f"  最终删除了 {final_removed} 个多余空行")
+
+    # 10.8. 设置打开文档时自动更新域（TOC会提示更新，点一次"是"即可）
+    print(f"\n[步骤10.8] 设置文档自动更新域...")
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    settings_element = doc.settings._element
+    existing = settings_element.find(qn('w:updateFields'))
+    if existing is not None:
+        settings_element.remove(existing)
+    update_fields = OxmlElement('w:updateFields')
+    update_fields.set(qn('w:val'), 'true')
+    settings_element.append(update_fields)
+    doc.save(output_path)
+    print("  已设置：打开文档时自动更新域（包括目录）")
+
+    # 10.9. 使用 Word COM 自动化更新 TOC 域并获取正确页码
+    print(f"\n[步骤10.9] 使用 Word COM 更新目录域（获取正确页码）...")
+    try:
+        import win32com.client
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        try:
+            abs_path = os.path.abspath(output_path)
+            wdoc = word.Documents.Open(abs_path)
+            # 第一次更新：生成 TOC 条目
+            wdoc.Fields.Update()
+            # 强制重新分页（TOC 页码需要分页信息）
+            wdoc.Repaginate()
+            # 第二次更新：用正确的页码更新 TOC
+            if wdoc.TablesOfContents.Count > 0:
+                wdoc.TablesOfContents(1).Update()
+            wdoc.Save()
+            wdoc.Close()
+            print("  Word COM 目录更新完成（页码已正确）")
+        finally:
+            word.Quit()
+    except ImportError:
+        print("  pywin32 未安装，跳过 COM 目录更新（页码可能不正确）")
+    except Exception as e:
+        print(f"  COM 目录更新失败: {e}")
 
     print("\n" + "=" * 50)
     print(f"报告生成成功: {output_path}")
@@ -1543,67 +1620,105 @@ def apply_chemical_subscripts(doc):
 
 
 def _insert_category1_material_subtitle(doc, context):
-    """在范围三类别1标题后插入材料列表副标题段落"""
-    subtitle = context.get('scope3_category1_material_subtitle', '')
-    if not subtitle:
-        print("  未找到 scope3_category1_material_subtitle，跳过")
-        return
-
-    # 查找标题段落：匹配中文编号 + "外购商品"
-    target_para = None
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if re.match(r'（[一二三四五六七八九十]+）', text) and '外购商品' in text:
-            target_para = para
-            break
-
-    if target_para is None:
-        print("  未找到范围三类别1标题段落，跳过")
+    """在范围三各类别标题后插入材料列表副标题段落"""
+    scope_3_names = context.get('scope_3_category_names', {})
+    if not scope_3_names:
+        print("  未找到 scope_3_category_names，跳过")
         return
 
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from copy import deepcopy
 
-    target_el = target_para._element
+    inserted = 0
+    for cat_key, cat_name in scope_3_names.items():
+        # 提取类别编号
+        try:
+            cat_num = int(cat_key.split('_')[1])
+        except (IndexError, ValueError):
+            continue
 
-    # 创建新段落
-    new_p = OxmlElement('w:p')
+        subtitle_key = f'scope3_category{cat_num}_material_subtitle'
+        subtitle = context.get(subtitle_key, '')
+        if not subtitle:
+            continue
 
-    # 复制段落属性（pPr），移除编号属性避免被自动编号
-    target_pPr = target_el.find(qn('w:pPr'))
-    if target_pPr is not None:
-        new_pPr = deepcopy(target_pPr)
-        numPr = new_pPr.find(qn('w:numPr'))
-        if numPr is not None:
-            new_pPr.remove(numPr)
-        # 确保首行缩进与正文一致（不额外缩进）
-        ind = new_pPr.find(qn('w:ind'))
-        if ind is not None:
-            # 保留左缩进，清除悬挂/首行缩进
-            ind.attrib.pop(qn('w:firstLine'), None)
-            ind.attrib.pop(qn('w:hanging'), None)
-        new_p.append(new_pPr)
+        # 查找标题段落：匹配中文编号 + 类别名称
+        target_para = None
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if re.match(r'（[一二三四五六七八九十]+）', text) and cat_name in text:
+                target_para = para
+                break
 
-    # 创建 run 并设置文本
-    r_el = OxmlElement('w:r')
-    target_runs = target_el.findall(qn('w:r'))
-    if target_runs:
-        target_rPr = target_runs[0].find(qn('w:rPr'))
-        if target_rPr is not None:
-            r_el.append(deepcopy(target_rPr))
+        if target_para is None:
+            continue
 
-    t_el = OxmlElement('w:t')
-    t_el.text = subtitle
-    t_el.set(qn('xml:space'), 'preserve')
-    r_el.append(t_el)
-    new_p.append(r_el)
+        target_el = target_para._element
 
-    # 插入到标题段落后
-    parent = target_el.getparent()
-    target_idx = list(parent).index(target_el)
-    parent.insert(target_idx + 1, new_p)
-    print(f"  已插入材料列表副标题: {subtitle[:80]}...")
+        # 创建新段落
+        new_p = OxmlElement('w:p')
+
+        # 复制段落属性（pPr），移除编号属性避免被自动编号
+        target_pPr = target_el.find(qn('w:pPr'))
+        if target_pPr is not None:
+            new_pPr = deepcopy(target_pPr)
+            numPr = new_pPr.find(qn('w:numPr'))
+            if numPr is not None:
+                new_pPr.remove(numPr)
+            ind = new_pPr.find(qn('w:ind'))
+            if ind is not None:
+                ind.attrib.pop(qn('w:firstLine'), None)
+                ind.attrib.pop(qn('w:hanging'), None)
+            new_p.append(new_pPr)
+
+        # 创建 run 并设置文本
+        r_el = OxmlElement('w:r')
+        target_runs = target_el.findall(qn('w:r'))
+        if target_runs:
+            target_rPr = target_runs[0].find(qn('w:rPr'))
+            if target_rPr is not None:
+                r_el.append(deepcopy(target_rPr))
+
+        t_el = OxmlElement('w:t')
+        t_el.text = subtitle
+        t_el.set(qn('xml:space'), 'preserve')
+        r_el.append(t_el)
+        new_p.append(r_el)
+
+        # 插入到标题段落后
+        parent = target_el.getparent()
+        target_idx = list(parent).index(target_el)
+        parent.insert(target_idx + 1, new_p)
+        inserted += 1
+
+    if inserted:
+        print(f"  已插入 {inserted} 个范围三类别材料列表副标题")
+    else:
+        print("  没有需要插入的材料列表副标题")
+
+
+def convert_parentheses_to_chinese(doc):
+    """
+    将全文中的英文括号 () 统一替换为中文括号 （）
+    覆盖段落和表格中的所有文本 run。
+    """
+    print("  正在统一中英文括号...")
+    count = 0
+    for para in doc.paragraphs:
+        for run in para.runs:
+            if '(' in run.text or ')' in run.text:
+                run.text = run.text.replace('(', '（').replace(')', '）')
+                count += 1
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        if '(' in run.text or ')' in run.text:
+                            run.text = run.text.replace('(', '（').replace(')', '）')
+                            count += 1
+    print(f"  统一了 {count} 处括号")
 
 
 def clean_excessive_blank_lines(doc):
@@ -1639,39 +1754,38 @@ def clean_excessive_blank_lines(doc):
 
     print(f"  量化方法说明部分: {start_idx} 到 {end_idx}")
 
-    # 1. 删除连续的空段落，保留最多1个空行
-    consecutive_empty = 0
+    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+
+    def _is_visually_empty(para):
+        """判断段落是否视觉上为空（无可见文字，可能含 <w:br/> 标签）"""
+        text = para.text.strip()
+        if text:
+            return False
+        runs = para._element.findall(ns + 'r')
+        if not runs:
+            return True
+        for run in runs:
+            t_elems = run.findall(ns + 't')
+            run_text = ''.join(t.text or '' for t in t_elems).strip()
+            if run_text:
+                return False
+        return True
+
+    # 1. 删除视觉空段落，保留最多1个空行
     indices_to_remove = set()
+    consecutive_empty = 0
 
     for i in range(start_idx, end_idx):
         if i >= len(doc.paragraphs):
             break
-        text = doc.paragraphs[i].text.strip()
-        if not text:
+        if _is_visually_empty(doc.paragraphs[i]):
             consecutive_empty += 1
             if consecutive_empty > 1:
                 indices_to_remove.add(i)
         else:
             consecutive_empty = 0
 
-    # 2. 删除范围标题与首个排放源之间的空行
-    #    模式：范围X：... → [空行] → （一）排放源...
-    #    仅删除第一个排放源前的空行，后续排放源之间的空行保留
-    scope_header_re = re.compile(r'^范围[一二三]：')
-    emission_title_re = re.compile(r'^（[一二三四五六七八九十]+）排放源')
-    for i in range(start_idx + 1, end_idx - 1):
-        if i >= len(doc.paragraphs) - 1:
-            break
-        prev_text = doc.paragraphs[i - 1].text.strip() if i > 0 else ''
-        curr_text = doc.paragraphs[i].text.strip()
-        next_text = doc.paragraphs[i + 1].text.strip()
-        # 当前段落为空，前一个是范围标题，后一个是排放源标题 → 删除此空行
-        if (not curr_text
-                and scope_header_re.match(prev_text)
-                and emission_title_re.match(next_text)):
-            indices_to_remove.add(i)
-
-    # 从后往前删除
+    # 删除连续空段落（保留最多1个空行）
     removed_count = 0
     for idx in sorted(indices_to_remove, reverse=True):
         if idx < len(doc.paragraphs):
@@ -1682,31 +1796,120 @@ def clean_excessive_blank_lines(doc):
 
     print(f"  删除了 {removed_count} 个多余空行")
 
-    # 3. 清理段落内部残留的 <w:br/> 尾随空 run
-    #    模板中 {% set %} 嵌入在 EF 段落内（换行分隔），渲染后 <w:br/> + 空 <w:t> 残留
-    #    导致段落内部多出一个空行，与段间空行叠加产生"连续两行"视觉
+    # 5. 清理段落内部所有的 <w:br/> 空 run（不仅尾随，包括全部）
     br_cleaned = 0
     for i in range(start_idx, end_idx):
         if i >= len(doc.paragraphs):
             break
         para = doc.paragraphs[i]
-        runs = para._element.findall(
-            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r')
+        runs = para._element.findall(ns + 'r')
         if not runs:
             continue
-        last_run = runs[-1]
-        brs = last_run.findall(
-            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}br')
-        if brs:
-            t_elems = last_run.findall(
-                '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+        runs_to_remove = []
+        for run in runs:
+            brs = run.findall(ns + 'br')
+            if not brs:
+                continue
+            t_elems = run.findall(ns + 't')
             t_text = ''.join(t.text or '' for t in t_elems).strip()
             if not t_text:
-                para._element.remove(last_run)
-                br_cleaned += 1
+                runs_to_remove.append(run)
+        for run in runs_to_remove:
+            para._element.remove(run)
+            br_cleaned += 1
 
     if br_cleaned:
         print(f"  清理了 {br_cleaned} 个段落内部的残留 <w:br/> 空行")
+
+def insert_toc_field(doc):
+    """在"概述"段落前插入 Word TOC 域目录
+
+    1. 给所有 Style2 段落设置大纲级别 1（排除"目录"标题自身）
+    2. 插入 TOC \\o "1-1" 域（基于大纲级别，比 \\t 样式名匹配更可靠）
+    3. 设置 updateFields，打开文档即可更新（点一次"是"）
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import parse_xml, OxmlElement
+
+    # ---- Step 1: 给 Style2 段落设置大纲级别 ----
+    ns_w = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    outline_count = 0
+    for para in doc.paragraphs:
+        if para.style.name == 'Style2':
+            text = para.text.strip()
+            if text == '目录':
+                continue  # 目录标题自身不入目录
+            pPr = para._element.find(qn('w:pPr'))
+            if pPr is None:
+                pPr = OxmlElement('w:pPr')
+                para._element.insert(0, pPr)
+            # 移除旧的大纲级别
+            old_lvl = pPr.find(qn('w:outlineLvl'))
+            if old_lvl is not None:
+                pPr.remove(old_lvl)
+            # 设置大纲级别 0 = Level 1（对应 TOC \\o "1-1"）
+            outline_lvl = OxmlElement('w:outlineLvl')
+            outline_lvl.set(qn('w:val'), '0')
+            pPr.append(outline_lvl)
+            outline_count += 1
+    print(f"  已为 {outline_count} 个 Style2 段落设置大纲级别 1")
+
+    # ---- Step 2: 查找"概述"段落 ----
+    target = None
+    for para in doc.paragraphs:
+        if para.text.strip() == '概述' and para.style.name == 'Style2':
+            target = para._element
+            break
+
+    if target is None:
+        print("  未找到'概述'段落，跳过目录插入")
+        return
+
+    # ---- Step 3: 目录标题段落（Normal 样式 + 加粗居中，不入目录） ----
+    toc_title = parse_xml(
+        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:pPr>'
+        '<w:jc w:val="center"/>'
+        '</w:pPr>'
+        '<w:r>'
+        '<w:rPr><w:b/><w:sz w:val="32"/></w:rPr>'
+        '<w:t xml:space="preserve">目录</w:t>'
+        '</w:r>'
+        '</w:p>'
+    )
+
+    # ---- Step 4: TOC 域段落（\\o "1-1" 收集大纲级别 1 的段落） ----
+    toc_field = parse_xml(
+        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:r>'
+        '<w:fldChar w:fldCharType="begin"/>'
+        '</w:r>'
+        '<w:r>'
+        '<w:instrText xml:space="preserve"> TOC \\o "1-1" \\h </w:instrText>'
+        '</w:r>'
+        '<w:r>'
+        '<w:fldChar w:fldCharType="separate"/>'
+        '</w:r>'
+        '<w:r>'
+        '<w:rPr><w:b/><w:color w:val="FF0000"/></w:rPr>'
+        '<w:t>（打开文档时点"是"更新目录）</w:t>'
+        '</w:r>'
+        '<w:r>'
+        '<w:fldChar w:fldCharType="end"/>'
+        '</w:r>'
+        '</w:p>'
+    )
+
+    # ---- Step 5: 目录后空行 ----
+    spacer = parse_xml(
+        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
+    )
+
+    target.addprevious(spacer)
+    target.addprevious(toc_title)
+    target.addprevious(toc_field)
+
+    print('  TOC 域目录已插入（大纲级别模式，在"概述"前）')
 
 
 def clean_empty_category_tables(doc, context):
@@ -2118,35 +2321,45 @@ def fix_scope3_category_headers(doc):
 
     # 在范围三章节内查找只有编号没有类别名称的标题
     fixed_count = 0
+    title_pattern = re.compile(r'^（[一二三四五六七八九十]+）')
     for i in range(scope3_section_start + 1, len(paragraphs_list)):
         text = paragraphs_list[i].text.strip()
-
-        # 检查是否是纯编号标题（只有"（X）"而没有其他内容）
-        if text in category_names:
-            # 检查下一段落是否是"（1）量化模型"等，确认这确实是一个类别标题
-            if i + 1 < len(paragraphs_list):
-                next_text = paragraphs_list[i + 1].text.strip()
-                if next_text.startswith('（1') or next_text.startswith('（2'):
-                    # 这是一个需要修复的类别标题
-                    full_title = f"{text}{category_names[text]}"
-                    para = paragraphs_list[i]
-
-                    # 清除段落内容
-                    for run in para.runs:
-                        run.text = ""
-
-                    # 添加新文本
-                    if para.runs:
-                        para.runs[0].text = full_title
-                    else:
-                        para.add_run(full_title)
-
-                    fixed_count += 1
-                    print(f"    修复段落{i}: '{text}' -> '{full_title}'")
 
         # 如果到达下一个范围章节，停止处理
         if text and ('第四章' in text or '参考文献' in text or '附录' in text):
             break
+
+        # 情况1：纯编号标题（只有"（X）"而没有其他内容）
+        if text in category_names:
+            if i + 1 < len(paragraphs_list):
+                next_text = paragraphs_list[i + 1].text.strip()
+                if next_text.startswith('（1') or next_text.startswith('（2'):
+                    full_title = f"{text}{category_names[text]}排放"
+                    para = paragraphs_list[i]
+                    for run in para.runs:
+                        run.text = ""
+                    if para.runs:
+                        para.runs[0].text = full_title
+                    else:
+                        para.add_run(full_title)
+                    fixed_count += 1
+                    print(f"    修复段落{i}: '{text}' -> '{full_title}'")
+            continue
+
+        # 情况2：已有类别名称但缺少"排放"后缀
+        #    匹配所有 （中文数字）... 开头的标题，不含"排放"则追加
+        #    注意：文本可能跨多个 run，不能直接 replace，需清空后重写
+        if title_pattern.match(text) and '排放' not in text:
+            full_title = f"{text}排放"
+            para = paragraphs_list[i]
+            for run in para.runs:
+                run.text = ""
+            if para.runs:
+                para.runs[0].text = full_title
+            else:
+                para.add_run(full_title)
+            fixed_count += 1
+            print(f"    修复段落{i}: '{text}' -> '{full_title}'")
 
     print(f"    已修复 {fixed_count} 个范围三类别标题")
 

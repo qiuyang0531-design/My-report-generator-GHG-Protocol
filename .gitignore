@@ -41,6 +41,10 @@ test_report.docx
 .env.test.local
 .env.production.local
 
+# Debug temp files
+_debug_*.txt
+_verify*.txt
+
 # System files
 nul
 

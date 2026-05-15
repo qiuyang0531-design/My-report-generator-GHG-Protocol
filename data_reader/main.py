@@ -168,9 +168,12 @@ class ExcelDataReaderRefactored(BaseReader):
             if src and ref and str(ref).strip() and str(ref).strip() != 'None':
                 ef_ref_map[src] = str(ref).strip() 
         
-        company = result.get('company_name', '大冶特殊钢有限公司') 
-        period = result.get('reporting_period', '2025年度') 
-        gwp_ref = result.get('GWP_Value_Reference_Document') or "《2021年IPCC第六次评估报告AR6》" 
+        company = result.get('company_name', '大冶特殊钢有限公司')
+        period = result.get('reporting_period', '2025年度')
+        gwp_ref = result.get('GWP_Value_Reference_Document') or "《2021年IPCC第六次评估报告AR6》"
+
+        # 范围三去重：跟踪已分配到某类别的 scope2_3_items 索引
+        claimed_scope2_3 = set() 
 
         # 2. 固体燃料识别函数 
         def is_solid(name): 
@@ -202,65 +205,112 @@ class ExcelDataReaderRefactored(BaseReader):
                     fuel_clean = fuel_clean[start+1:end]
 
                 # =====================================================================
-                # 范围三类别1（外购商品和服务）：从 Excel 动态生成 AD/EF 描述
+                # 范围三：从 Excel 动态生成 AD/EF 描述（所有类别）
                 # =====================================================================
-                if scope == 'scope_3' and m_key == 'category_1':
-                    # 从 scope3_category1 获取类别1排放源名单
-                    cat1_sources = [i.get('emission_source', '')
-                                    for i in result.get('scope3_category1', [])]
+                if scope == 'scope_3':
+                    cat_num = int(m_key.split('_')[1])  # 'category_1' -> 1
+                    cat_data_key = f'scope3_category{cat_num}'
+                    cat_sources = [i.get('emission_source', '')
+                                   for i in result.get(cat_data_key, [])]
                     # 在 scope2_3_items 中匹配（获取 H列数据来源）
-                    cat1_table1 = [i for i in result.get('scope2_3_items', [])
-                                   if i.get('emission_source', '') in cat1_sources]
-                    cat1_ef = result.get('cat1_ef_items', [])
+                    # 跨类别去重：同名排放源只取首个未认领的 item
+                    scope2_3 = result.get('scope2_3_items', [])
+                    cat_table = []
+                    used_in_cat = set()
+                    for idx, item in enumerate(scope2_3):
+                        if idx in claimed_scope2_3:
+                            continue
+                        src = item.get('emission_source', '')
+                        if src in cat_sources and src not in used_in_cat:
+                            cat_table.append(item)
+                            claimed_scope2_3.add(idx)
+                            used_in_cat.add(src)
+                    cat_ef = result.get(f'cat{cat_num}_ef_items', [])
 
-                    if cat1_table1:
-                        # 获取所有材料名（去掉"生产"等后缀）
+                    if cat_table:
                         def _shorten_mat(name):
-                            return name.replace('生产', '').strip()
+                            return name.replace('生产', '').replace('(', '（').replace(')', '）').strip()
 
                         all_materials = [_shorten_mat(i.get('emission_source', ''))
-                                         for i in cat1_table1
+                                         for i in cat_table
                                          if i.get('emission_source')]
 
-                        # 按数据来源分组
+                        # 按数据来源分组 → AD 描述
                         ds_groups = {}
-                        for item in cat1_table1:
+                        for item in cat_table:
                             ds = item.get('data_source', '')
                             mat = _shorten_mat(item.get('emission_source', ''))
                             if ds not in ds_groups:
                                 ds_groups[ds] = []
                             ds_groups[ds].append(mat)
 
-                        # 构建 AD 描述
-                        ad_parts = []
-                        for ds, mats in ds_groups.items():
-                            mats_text = '、'.join(mats)
-                            ad_parts.append(f"{mats_text}的活动数据来源于{company}提供{ds}")
-                        ad_text = f"{period}期间，" + "；".join(ad_parts) + "。"
+                        # --- AD 描述 ---
+                        if cat_num == 4:
+                            # 上游运输配送：供货商所在地 → 公司地址，地图查询距离
+                            ds_list = '、'.join(ds_groups.keys())
+                            ad_text = (f"{period}期间，运输距离来源于{company}提供{ds_list}，"
+                                       f"为根据供货商所在地与{company}地址根据不同运输方式的地图查询距离，"
+                                       f"自行推估加权平均分别计算得出的外购货物的运输距离。")
+                        elif cat_num == 9:
+                            # 下游运输配送：公司地址 → 接收方注册地址，地图查询距离
+                            parts = []
+                            for ds, mats in ds_groups.items():
+                                mats_text = '、'.join(mats)
+                                if '副产品' in mats_text:
+                                    parts.append(f"副产品运输距离来源于{company}提供{ds}，"
+                                                 f"为根据接收方的注册地址和{company}地址根据地图查询陆运距离，"
+                                                 f"自行推估加权平均分别计算")
+                                else:
+                                    parts.append(f"运输距离来源于{company}提供{ds}，"
+                                                 f"为根据接收方的注册地址和{company}地址根据不同运输方式的地图查询距离，"
+                                                 f"自行推估加权平均分别计算得出的外销产品的运输距离")
+                            ad_text = f"{period}期间，" + "；".join(parts) + "。"
+                        else:
+                            ad_parts = []
+                            for ds, mats in ds_groups.items():
+                                mats_text = '、'.join(mats)
+                                ad_parts.append(f"{mats_text}的活动数据来源于{company}提供{ds}")
+                            ad_text = f"{period}期间，" + "；".join(ad_parts) + "。"
+
+                        # 资本货物（类别2）：补充花费金额和汇率信息
+                        if cat_num == 2:
+                            ad_text = ad_text.replace('的活动数据来源于', '统计的采购花费金额，活动数据来源于')
+                            ad_text = ad_text.rstrip('。') + "。汇率采用2022年平均人民币对美元汇率1：6.7261。"
+                            # EF 已由 cat_ef 生成时追加花费金额前缀（见下）
+
                         m_info['ad'] = get_clean_desc(ad_text)
 
-                        # 按 EF 来源分组
-                        ef_source_map = {}
-                        for ef_item in cat1_ef:
-                            src = ef_item.get('emission_source_cat1', '')
-                            ef_db = ef_item.get('cat1_emission_source', '')
-                            if ef_db not in ef_source_map:
-                                ef_source_map[ef_db] = []
-                            ef_source_map[ef_db].append(_shorten_mat(src))
+                        # --- EF 描述 ---
+                        if cat_ef:
+                            ef_source_map = {}
+                            src_key = f'emission_source_cat{cat_num}'
+                            ef_key = f'cat{cat_num}_emission_source'
+                            for ef_item in cat_ef:
+                                src = ef_item.get(src_key, '')
+                                ef_db = ef_item.get(ef_key, '')
+                                if not ef_db:
+                                    continue
+                                if ef_db not in ef_source_map:
+                                    ef_source_map[ef_db] = []
+                                ef_source_map[ef_db].append(_shorten_mat(src))
 
-                        ef_parts = []
-                        for ef_db, mats in ef_source_map.items():
-                            mats_text = '、'.join(mats)
-                            ef_parts.append(f"{mats_text}排放因子来源于《{ef_db}》")
-                        ef_text = "；".join(ef_parts) + "。"
-                        m_info['ef'] = get_clean_desc(ef_text)
+                            ef_parts = []
+                            for ef_db, mats in ef_source_map.items():
+                                mats_text = '、'.join(mats)
+                                # 资本货物（类别2）：花费金额推算，排放因子为USD计价
+                                spend_prefix = '花费金额的' if cat_num == 2 else ''
+                                ef_parts.append(f"{mats_text}{spend_prefix}排放因子来源于《{ef_db}》")
+                            if ef_parts:
+                                ef_text = "；".join(ef_parts) + "。"
+                                if cat_num == 2:
+                                    ef_text = ef_text.rstrip('。') + "（基于人民币对美元汇率1：6.7261换算）。"
+                                m_info['ef'] = get_clean_desc(ef_text)
 
-                        # 更新 name：添加材料列表
-                        material_list = '、'.join(all_materials)
-                        m_info['name'] = f"外购商品和服务（包括{material_list}，CO2排放）"
                         # 存储材料列表副标题，供 main.py 后处理插入独立段落
-                        result['scope3_category1_material_subtitle'] = \
+                        material_list = '、'.join(all_materials)
+                        result[f'scope3_category{cat_num}_material_subtitle'] = \
                             f"包括{material_list}（CO₂排放）"
+
                         continue
 
                 # =====================================================================

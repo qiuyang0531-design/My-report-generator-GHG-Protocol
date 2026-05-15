@@ -20,19 +20,19 @@
   },
   "scope_3": {
     "category_1": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 1:Purchased Goods and Services的Average-data method和Spend-based method",
-    "category_2": "来源于《Scope 3计算指南》的Spend-based method",
-    "category_3": "来源于《Scope 3计算指南》Category 3的Average-data method",
-    "category_4": "来源于《Scope 3计算指南》Category 4的Distance-based method",
-    "category_5": "来源于《Scope 3计算指南》Category 5的Waste-type-specific method",
-    "category_6": "来源于《Scope 3计算指南》Category 6",
-    "category_7": "来源于《Scope 3计算指南》Category 7",
-    "category_8": "来源于《Scope 3计算指南》Category 8",
-    "category_9": "来源于《Scope 3计算指南》Category 9: Downstream Transportation",
-    "category_10": "来源于《Scope 3计算指南》Category 10: Processing of sold Products",
-    "category_11": "来源于《Scope 3计算指南》Category 11: Use of Sold Products",
-    "category_12": "来源于《Scope 3计算指南》Category 12: End-of-Life Treatment",
-    "category_13": "来源于《Scope 3计算指南》Category 13: Downstream Leased Assets",
-    "category_14": "来源于《Scope 3计算指南》Category 14: Franchises",
-    "category_15": "来源于《Scope 3计算指南》Category 15: Investments"
+    "category_2": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 1:Purchased Goods and Services的Spend-based method（Category 1和Category 2的计算方法一致）",
+    "category_3": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 3:Fuel-and Energy-Related Activities Not Included in Scope 1 or Scope 2的Average-data method",
+    "category_4": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 4:Upstream Transportation and Distribution的Distance-based method",
+    "category_5": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 5:Waste Generated in Operations的Waste-type-specific method",
+    "category_6": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 6:Business Travel",
+    "category_7": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 7:Employee Commuting",
+    "category_8": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 8:Upstream Leased Assets",
+    "category_9": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 9:Downstream Transportation and Distribution",
+    "category_10": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 10:Processing of sold Products",
+    "category_11": "方法学来自标准ISO 14064-1:2018/ 6.2",
+    "category_12": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 12:End-of-Life Treatment of Sold Products",
+    "category_13": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 13:Downstream Leased Assets",
+    "category_14": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 14:Franchises",
+    "category_15": "来源于《Technical Guidance for Calculating Scope 3 Emissions》Category 15:Investments"
   }
 }

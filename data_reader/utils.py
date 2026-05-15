@@ -69,6 +69,8 @@ def clean_multiline_text(value: str) -> str:
         value = re.sub(r'[ \t]+', ' ', value)
         # 清理段落分隔符前后空格
         value = re.sub(r' ?\n\n ?', '\n\n', value).strip()
+        # 统一中英文括号
+        value = value.replace('(', '（').replace(')', '）')
     return value
 
 
