@@ -188,14 +188,12 @@ class ExcelDataReaderRefactored(BaseReader):
 
         for scope in ['scope_1', 'scope_2', 'scope_3']:
             methods = result.get('quantification_methods', {}).get(scope, {})
-            for m_key, m_info in methods.items():
+            for m_key, m_info in list(methods.items()):
                 # 保存 report_config.py 中定义的原始 AD/EF（用于兜底，保留精确描述）
                 _orig_ad = str(m_info.get('ad', '')).strip()
                 _orig_ef = str(m_info.get('ef', '')).strip()
 
-                # 强制名称替换：厌氧池 -> 耗氧池
-                m_name = m_info.get('name', '').replace('厌氧池', '耗氧池')
-                m_info['name'] = m_name
+                m_name = m_info.get('name', '')
 
                 fuel_clean = m_name.replace('燃烧','').replace('外售','').replace('排放','').strip()
                 # 从括号中提取物质名称（如 "热处理炉/加热炉（天然气）" → "天然气"）
@@ -367,8 +365,16 @@ class ExcelDataReaderRefactored(BaseReader):
                 # 专项分支拦截
                 # =====================================================================
 
-                # 1. 高压开关 (SF6 逸散) - 新增逻辑
+                # 1. 高压开关 (SF6 逸散) - 无匹配 XLSX 数据时跳过
                 if any(x in m_name for x in ["高压开关", "SF6"]):
+                    # 检查 XLSX 中是否存在 SF6 相关数据
+                    has_sf6_data = any(
+                        'SF6' in str(i.get('emission_source', '')) or 'SF6' in str(i.get('facility', ''))
+                        for i in all_table1
+                    )
+                    if not has_sf6_data:
+                        del methods[m_key]
+                        continue
                     if ds and ds != '相关报表':
                         m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds}{fuel_clean}填充SF6铭牌额定量的统计。")
                     elif _has_specific_source(_orig_ad):
@@ -389,8 +395,8 @@ class ExcelDataReaderRefactored(BaseReader):
                         f"MCF取0.3，因{company}的生活废水工业废水处理同在耗氧处理厂中，管理不完善而保守选取0.3。"
                     )
 
-                # 3. 废水处理 - 耗氧池 (COD类)
-                elif any(x in m_name for x in ["耗氧池", "废水处理"]):
+                # 3. 废水处理 - 厌氧池 (COD类)
+                elif any(x in m_name for x in ["厌氧池", "废水处理"]):
                     if ds and ds != '相关报表':
                         m_info['ad'] = get_clean_desc(f"来源于{company}提供{ds}{period}生产过程产生的工业废水处理量及进出口COD浓度的统计。")
                     elif _has_specific_source(_orig_ad):
@@ -477,8 +483,8 @@ class ExcelDataReaderRefactored(BaseReader):
 
                     m_info['ef'] = get_clean_desc("，".join(ef_segs) + f"，GWP值来源于{gwp_ref}。")
 
-                # --- 分支 C：制程排放 ---
-                elif "制程" in m_name:
+                # --- 分支 C：制程排放 / 含碳物料 ---
+                elif "制程" in m_name or "含碳" in m_name:
                     # 从 scope1_process_emissions_items 构建 facility 映射
                     facility_map = {}
                     for item in result.get('scope1_process_emissions_items', []):
@@ -523,26 +529,24 @@ class ExcelDataReaderRefactored(BaseReader):
                         if seq_srcs:
                             sequestering_groups.append((ds_val, seq_srcs))
 
-                    # 构建 AD 描述
+                    # 构建 AD 描述：按数据来源分组，列出具体物料
                     ad_parts = []
 
                     if emitting_groups:
-                        all_emitting = []
-                        for _, srcs in emitting_groups:
-                            all_emitting.extend(srcs)
-                        ad_parts.append(f"工业过程中含碳物料（{'、'.join(all_emitting)}）产生排放")
                         for ds_val, srcs in emitting_groups:
-                            ad_parts.append(f"{'、'.join(srcs)}的活动数据来源于{ds_val}")
+                            srcs_str = '、'.join(srcs)
+                            ad_parts.append(
+                                f"来源于{company}提供{ds_val}中{srcs_str}在{period}内的消耗量"
+                            )
 
                     if sequestering_groups:
-                        all_seq = []
-                        for _, srcs in sequestering_groups:
-                            all_seq.extend(srcs)
-                        ad_parts.append(f"生产过程中产生固碳产品（{'、'.join(all_seq)}），抵扣排放")
                         for ds_val, srcs in sequestering_groups:
-                            ad_parts.append(f"{'、'.join(srcs)}的活动数据来源于{ds_val}")
+                            srcs_str = '、'.join(srcs)
+                            ad_parts.append(
+                                f"来源于{company}提供{ds_val}中{srcs_str}在{period}内的产量，作为固碳产品抵扣排放"
+                            )
 
-                    m_info['ad'] = get_clean_desc("；".join(ad_parts) + f"。统计周期为{period}。")
+                    m_info['ad'] = get_clean_desc("；".join(ad_parts) + f"。")
 
                     # EF：使用原始配置中的准确描述，去掉不存在的 A.3 引用
                     if _orig_ef and len(_orig_ef) > 10:

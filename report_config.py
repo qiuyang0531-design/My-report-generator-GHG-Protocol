@@ -194,7 +194,7 @@ class ReportConfig:
                     'name': '上游租赁资产',
                     'model': _model('scope_3', 'category_8',
                         '来源于《Scope 3计算指南》Category 8'),
-                    'ad': f'{c}的上游租赁资产主要包括租赁的办公场所、设备等，该类别数据不具备重要性，不进行量化。',
+                    'ad': f'无上游租赁资产相关排放。',
                     'ef': '租赁资产能源消耗因子来源于ecoinvent 3.10-cut off。'
                 },
                 'category_9': {
@@ -229,21 +229,21 @@ class ReportConfig:
                     'name': '下游租赁资产',
                     'model': _model('scope_3', 'category_13',
                         '来源于《Scope 3计算指南》Category 13: Downstream Leased Assets'),
-                    'ad': f'{c}的下游租赁资产主要包括租给客户的设备、场所等，该类别数据不具备重要性，不进行量化。',
+                    'ad': f'无下游租赁资产相关排放。',
                     'ef': '租赁资产能源消耗因子来源于ecoinvent 3.10-cut off。'
                 },
                 'category_14': {
                     'name': '特许经营',
                     'model': _model('scope_3', 'category_14',
                         '来源于《Scope 3计算指南》Category 14: Franchises'),
-                    'ad': f'{c}的特许经营排放主要包括特许经营店运营产生的排放，该类别数据不具备重要性，不进行量化。',
+                    'ad': f'无特许经营相关排放。',
                     'ef': '特许经营店排放因子来源于ecoinvent 3.10-cut off。'
                 },
                 'category_15': {
                     'name': '投资',
                     'model': _model('scope_3', 'category_15',
                         '来源于《Scope 3计算指南》Category 15: Investments'),
-                    'ad': f'{c}的投资排放主要包括对被投资公司的股权投资按比例分摊的排放，该类别数据不具备重要性，不进行量化。',
+                    'ad': f'无投资相关排放。',
                     'ef': '投资排放因子来源于ecoinvent 3.10-cut off。'
                 }
             }

@@ -1865,10 +1865,12 @@ def insert_toc_field(doc):
         print("  未找到'概述'段落，跳过目录插入")
         return
 
-    # ---- Step 3: 目录标题段落（Normal 样式 + 加粗居中，不入目录） ----
+    # ---- Step 3: 目录标题段落（Normal 样式 + 加粗居中 + 段前新页，不入目录） ----
     toc_title = parse_xml(
         '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
         '<w:pPr>'
+        '<w:pageBreakBefore/>'
+        '<w:keepNext/>'
         '<w:jc w:val="center"/>'
         '</w:pPr>'
         '<w:r>'
@@ -1900,16 +1902,19 @@ def insert_toc_field(doc):
         '</w:p>'
     )
 
-    # ---- Step 5: 目录后空行 ----
-    spacer = parse_xml(
-        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
-    )
+    # ---- Step 5: 给"概述"段落加 pageBreakBefore，确保正文从新页开始 ----
+    target_pPr = target.find(qn('w:pPr'))
+    if target_pPr is None:
+        target_pPr = OxmlElement('w:pPr')
+        target.insert(0, target_pPr)
+    page_break = OxmlElement('w:pageBreakBefore')
+    target_pPr.append(page_break)
 
-    target.addprevious(spacer)
-    target.addprevious(toc_title)
-    target.addprevious(toc_field)
+    # 插入顺序：toc_title → toc_field → 概述
+    target.addprevious(toc_field)       # TOC 域紧贴概述
+    toc_field.addprevious(toc_title)    # "目录"标题在 TOC 域前
 
-    print('  TOC 域目录已插入（大纲级别模式，在"概述"前）')
+    print('  TOC 域目录已插入（大纲级别模式，目录另起一页，正文从新页开始）')
 
 
 def clean_empty_category_tables(doc, context):
@@ -2394,11 +2399,8 @@ def add_excluded_categories_statement(doc, context):
         excluded_names.append(f'类别{num}（{name}）')
 
     # 生成排除说明文字
-    nums_str = '、'.join([str(n) for n in excluded_nums])
-    statement = (
-        f"本次盘查范围内，{nums_str}（{'、'.join(excluded_names)}）"
-        f"因数据不具备重要性，不进行量化。"
-    )
+    names_str = '、'.join([scope_3_names.get(f'category_{n}') or scope_3_names.get(n) or f'类别{n}' for n in excluded_nums])
+    statement = f"本次盘查范围内，无{names_str}相关排放。"
 
     # 找到最后一个合规声明段落（无温室气体储存）作为插入参考点
     insert_after = None
@@ -3451,9 +3453,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == '--generate':
         # 生成报告模式
         xlsx_path = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_DY_XLSX_NAME
-        output_path = sys.argv[3] if len(sys.argv) > 3 else "carbon_report_v15.docx"
+        output_path = sys.argv[3] if len(sys.argv) > 3 else "carbon_report.docx"
         generate_report_from_xlsx(xlsx_path=xlsx_path, output_path=output_path)
     else:
         # 默认执行生成报告
         print("使用 'python main.py --generate' 生成报告")
-        generate_report_from_xlsx(output_path="carbon_report_v15.docx")
+        generate_report_from_xlsx(output_path="carbon_report.docx")
