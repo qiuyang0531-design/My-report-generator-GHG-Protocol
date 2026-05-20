@@ -20,6 +20,73 @@ def _load_model_config():
         return {}
 
 
+# ============================================================
+# 范围三类别名称 —— 唯一数据源
+# 所有需要范围三类别名称的模块均从此处引用，不再各自维护拷贝。
+# ============================================================
+
+_SCOPE_3_CATEGORY_NAMES = {
+    1: "类别1：外购商品和服务上游排放",
+    2: "类别2：资本货物上游排放",
+    3: "类别3：燃料和能源相关活动未包含在范围一和范围二中的上游排放",
+    4: "类别4：上游运输和配送",
+    5: "类别5：运营中产生的废弃物",
+    6: "类别6：员工商务旅行",
+    7: "类别7：员工通勤",
+    8: "类别8：上游租赁资产",
+    9: "类别9：下游运输和配送",
+    10: "类别10：销售产品的加工",
+    11: "类别11：销售产品的使用",
+    12: "类别12：销售产品的报废处理",
+    13: "类别13：下游租赁资产",
+    14: "类别14：特许经营",
+    15: "类别15：投资",
+}
+
+_CHINESE_NUMERALS = [
+    '（一）', '（二）', '（三）', '（四）', '（五）',
+    '（六）', '（七）', '（八）', '（九）', '（十）',
+    '（十一）', '（十二）', '（十三）', '（十四）', '（十五）',
+]
+
+
+def get_scope_3_category_name(category_num):
+    """获取范围三类别名称（模块级函数，可用于类外调用）
+
+    Args:
+        category_num: 类别编号 (1-15)
+
+    Returns:
+        类别名称字符串
+    """
+    return _SCOPE_3_CATEGORY_NAMES.get(category_num, f"类别{category_num}")
+
+
+def get_all_scope_3_category_names():
+    """获取范围三全部 15 个类别名称的字典（模块级函数）
+
+    Returns:
+        字典，键为 'category_N'，值为类别名称
+    """
+    return {f'category_{i}': name for i, name in _SCOPE_3_CATEGORY_NAMES.items()}
+
+
+def get_scope_3_category_name_by_chinese_numeral(chinese_numeral):
+    """通过中文编号（如 '（一）'）获取类别名称
+
+    Args:
+        chinese_numeral: 中文编号字符串，例如 '（一）'
+
+    Returns:
+        类别名称字符串；未匹配时返回原输入
+    """
+    try:
+        idx = _CHINESE_NUMERALS.index(chinese_numeral)
+        return _SCOPE_3_CATEGORY_NAMES.get(idx + 1, chinese_numeral)
+    except ValueError:
+        return chinese_numeral
+
+
 class ReportConfig:
     def __init__(self, company_name="某公司", reporting_period="2024年度"):
         self.company_name = company_name
@@ -209,21 +276,21 @@ class ReportConfig:
                     'model': _model('scope_3', 'category_10',
                         '来源于《Scope 3计算指南》Category 10: Processing of sold Products'),
                     'ad': f'来源于{c}提供{p}内《钢坯钢材外销情况统计表》中的外销总量。',
-                    'ef': '选用三环锻造、郑煤机智鼎等代表性加工强度加权平均所得。'
+                    'ef': '选用浙江健力、三环锻造公司加工棒材的排放强度加权平均为对应排放因子；选用江苏翔能公司加工锻材的排放强度为对应排放因子；选用郑煤机智鼎液压有限公司加工钢管的排放强度为对应排放因子；选用《ecoinvent 3.10-cut off》的"hot rolling, steel"作为钢坯加工的排放因子。'
                 },
                 'category_11': {
                     'name': '已售产品的使用',
                     'model': _model('scope_3', 'category_11',
                         '来源于《Scope 3计算指南》Category 11: Use of Sold Products'),
-                    'ad': f'来源于{c}提供的产品使用阶段能源消耗数据，涵盖{p}内已售产品的使用过程排放。',
-                    'ef': '使用阶段排放因子来源于ecoinvent 3.10-cut off。'
+                    'ad': f'{p}期间，来源于{c}提供《能源报表》内外售焦炉煤气的统计量，焦炉煤气全部由焦化工序产生，并无外购量，活动数据为净外售量，抵扣温室气体排放。',
+                    'ef': ''  # 由动态生成覆盖（燃料型 EF）
                 },
                 'category_12': {
                     'name': '已售产品的报废处理',
                     'model': _model('scope_3', 'category_12',
                         '来源于《Scope 3计算指南》Category 12: End-of-Life Treatment'),
-                    'ad': f'根据{c}提供的外销总量，结合全国废钢报废比例进行推算。',
-                    'ef': '因子来源于ecoinvent 3.10-cut off。'
+                    'ad': f'{p}期间，来源于{c}提供《外销情况统计表》中所有外销钢材、钢坯的总量，根据《废钢助力钢铁行业电炉短流程发展研究》统计的2023年全国废钢资源总量及废钢消耗量推算出的废钢报废比例，进行活动数据推算。',
+                    'ef': '外销产品报废的排放因子来源于《ecoinvent 3.10-cut off》。'
                 },
                 'category_13': {
                     'name': '下游租赁资产',
@@ -250,42 +317,9 @@ class ReportConfig:
         }
 
     def get_scope_3_category_name(self, category_num):
-        """
-        获取范围三全部 15 个类别名称
-
-        Args:
-            category_num: 类别编号 (1-15)
-
-        Returns:
-            类别名称字符串
-        """
-        names = {
-            1: "外购商品和服务",
-            2: "资本货物",
-            3: "燃料和能源相关活动",
-            4: "上游运输和配送",
-            5: "运营中产生的废弃物",
-            6: "员工商务差旅",
-            7: "员工上下班通勤",
-            8: "上游租赁资产",
-            9: "下游运输和配送",
-            10: "已售产品的加工",
-            11: "已售产品的使用",
-            12: "已售产品的报废处理",
-            13: "下游租赁资产",
-            14: "特许经营",
-            15: "投资"
-        }
-        return names.get(category_num, f"类别{category_num}")
+        """委托到模块级函数"""
+        return get_scope_3_category_name(category_num)
 
     def get_all_scope_3_category_names(self):
-        """
-        获取范围三全部 15 个类别名称的字典
-
-        Returns:
-            字典，键为类别编号，键值为类别名称
-        """
-        return {
-            f'category_{i}': self.get_scope_3_category_name(i)
-            for i in range(1, 16)
-        }
+        """委托到模块级函数"""
+        return get_all_scope_3_category_names()

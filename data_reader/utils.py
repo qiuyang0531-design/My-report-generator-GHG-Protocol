@@ -19,7 +19,7 @@ def excel_date_to_string(date_value):
     try:
         # Excel日期基准是1899-12-30
         delta = datetime.fromordinal(datetime(1900, 1, 1).toordinal() + int(date_value) - 2)
-        return delta.strftime('%Y年%m月%d日')
+        return f'{delta.year}年{delta.month}月{delta.day}日'
     except (ValueError, TypeError):
         return str(date_value)
 

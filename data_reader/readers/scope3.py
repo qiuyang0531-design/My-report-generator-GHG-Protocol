@@ -45,23 +45,8 @@ class Scope3Reader(BaseReader):
             result[f'scope_3_category_{i}_emissions'] = 0.0
 
         # 添加范围三类别名称映射（模板使用 "category_" ~ i 字符串键访问）
-        result['scope_3_category_names'] = {
-            'category_1': '外购商品和服务上游排放',
-            'category_2': '资本货物上游排放',
-            'category_3': '燃料和能源相关活动未包含在范围一和范围二中的上游排放',
-            'category_4': '上游运输和配送',
-            'category_5': '运营中产生的废弃物',
-            'category_6': '员工商务旅行',
-            'category_7': '员工通勤',
-            'category_8': '上游租赁资产',
-            'category_9': '下游运输和配送',
-            'category_10': '销售产品的加工',
-            'category_11': '销售产品的使用',
-            'category_12': '销售产品的报废处理',
-            'category_13': '下游租赁资产',
-            'category_14': '特许经营',
-            'category_15': '投资'
-        }
+        from report_config import get_all_scope_3_category_names as _get_names
+        result['scope_3_category_names'] = _get_names()
 
         # 从"表1温室气体盘查表"中提取范围三各类别数据
         table_sheet = self.find_sheet_by_name('表1', '温室气体盘查表')

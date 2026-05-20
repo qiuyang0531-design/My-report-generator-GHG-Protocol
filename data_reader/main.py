@@ -283,10 +283,27 @@ class ExcelDataReaderRefactored(BaseReader):
                             ef_source_map = {}
                             src_key = f'emission_source_cat{cat_num}'
                             ef_key = f'cat{cat_num}_emission_source'
+                            fuel_ef_parts = []  # 燃料型 EF 另行处理
                             for ef_item in cat_ef:
                                 src = ef_item.get(src_key, '')
                                 ef_db = ef_item.get(ef_key, '')
                                 if not ef_db:
+                                    # 检测是否为燃料型 EF（有 NCV 数据但无引用源）
+                                    ncv_key = f'ncv_cat{cat_num}'
+                                    if (ef_item.get(ncv_key) is not None
+                                            and str(ef_item.get(ncv_key, '')).strip()
+                                            and str(ef_item.get(ncv_key, '')).strip() != '0'):
+                                        # 为燃料型 scope 3 类别生成详细燃料 EF 描述
+                                        fuel_name = _shorten_mat(src).replace('燃烧', '').replace('外售', '').strip()
+                                        fuel_ef_text = (
+                                            f"{fuel_name}量化所需的参数包括低位发热量、碳氧化率，"
+                                            f"数据来源于《企业温室气体排放核算与报告指南-钢铁生产》"
+                                            f"附表A.1常用化石燃料相关参数缺省值，"
+                                            f"{fuel_name}燃烧产生CO₂、CH₄、N₂O三类温室气体"
+                                            f"热值排放系数来源于《IPCC-2006缺省值》，"
+                                            f"GWP值来源于{gwp_ref}"
+                                        )
+                                        fuel_ef_parts.append(fuel_ef_text)
                                     continue
                                 if ef_db not in ef_source_map:
                                     ef_source_map[ef_db] = []
@@ -298,11 +315,21 @@ class ExcelDataReaderRefactored(BaseReader):
                                 # 资本货物（类别2）：花费金额推算，排放因子为USD计价
                                 spend_prefix = '花费金额的' if cat_num == 2 else ''
                                 ef_parts.append(f"{mats_text}{spend_prefix}排放因子来源于《{ef_db}》")
+                            ef_parts.extend(fuel_ef_parts)
                             if ef_parts:
                                 ef_text = "；".join(ef_parts) + "。"
-                                if cat_num == 2:
-                                    ef_text = ef_text.rstrip('。') + "（基于人民币对美元汇率1：6.7261换算）。"
                                 m_info['ef'] = get_clean_desc(ef_text)
+
+                        # Config 描述更详细时，优先使用 config（而非动态生成）
+                        # 比较字符长度：config 更长说明有更多手工撰写的细节
+                        dyn_ef_len = len(str(m_info.get('ef', '')).strip())
+                        dyn_ad_len = len(str(m_info.get('ad', '')).strip())
+                        orig_ef_len = len(str(_orig_ef).strip())
+                        orig_ad_len = len(str(_orig_ad).strip())
+                        if _orig_ef and (orig_ef_len > dyn_ef_len or dyn_ef_len == 0):
+                            m_info['ef'] = get_clean_desc(_orig_ef)
+                        if _orig_ad and (orig_ad_len > dyn_ad_len or dyn_ad_len == 0):
+                            m_info['ad'] = get_clean_desc(_orig_ad)
 
                         # 存储材料列表副标题，供 main.py 后处理插入独立段落
                         material_list = '、'.join(all_materials)
@@ -536,17 +563,19 @@ class ExcelDataReaderRefactored(BaseReader):
                         for ds_val, srcs in emitting_groups:
                             srcs_str = '、'.join(srcs)
                             ad_parts.append(
-                                f"来源于{company}提供{ds_val}中{srcs_str}在{period}内的消耗量"
+                                f"来源于{company}提供{ds_val}中{srcs_str}的消耗量"
                             )
 
                     if sequestering_groups:
                         for ds_val, srcs in sequestering_groups:
                             srcs_str = '、'.join(srcs)
                             ad_parts.append(
-                                f"来源于{company}提供{ds_val}中{srcs_str}在{period}内的产量，作为固碳产品抵扣排放"
+                                f"来源于{company}提供{ds_val}中{srcs_str}的产量，作为固碳产品抵扣排放"
                             )
 
-                    m_info['ad'] = get_clean_desc("；".join(ad_parts) + f"。")
+                    m_info['ad'] = get_clean_desc(
+                        f"在{period}内，" + "；".join(ad_parts) + "。"
+                    )
 
                     # EF：使用原始配置中的准确描述，去掉不存在的 A.3 引用
                     if _orig_ef and len(_orig_ef) > 10:
