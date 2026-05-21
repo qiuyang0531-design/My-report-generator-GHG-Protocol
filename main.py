@@ -3,6 +3,7 @@
 from data_reader import ExcelDataReaderRefactored as ExcelDataReader
 from docxtpl import DocxTemplate
 from jinja2 import Environment
+from datetime import date
 import os
 import re
 from docx.oxml import OxmlElement
@@ -23,7 +24,7 @@ from post_processor import (
     merge_other_tables_vertical_cells,
 )
 
-DEFAULT_DY_XLSX_NAME = "DY-GHG-2026-01 大冶特殊钢-温室气体盘查清册-Update 20260317Protocol-tr-0408.xlsx"
+DEFAULT_DY_XLSX_NAME = "blank_form.xlsx"
 
 
 def _extract_version_date(filename):
@@ -629,9 +630,142 @@ def prepare_context_with_formatting(context):
     formatted_context = _finalize_context(formatted_context, context)
     return formatted_context
 
+def _build_summary_data_base(workbook):
+    """从Excel的"基准年温室气体清单"sheet读取基准年汇总数据。
+
+    读取左半区（cols 0-9）的实际数值，构建与 summary_data 结构一致的字典。
+    GHG位置 sheet → scope2.loc + total_loc
+    GHG市场 sheet → scope2.mar + total_mar
+    scope1 和 scope3 由两张表共享（数值相同）。
+    """
+    import openpyxl
+    from inventory_summary_generator import format_number as fmt
+
+    gases = ['co2', 'ch4', 'n2o', 'hfcs', 'pfcs', 'sf6', 'nf3', 'total']
+
+    def _safe_float(v):
+        if v is None:
+            return 0.0
+        if isinstance(v, str):
+            v = v.replace(',', '')
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _read_gas_row(row, start=2):
+        return {g: _safe_float(row[start + i]) if start + i < len(row) else 0.0
+                for i, g in enumerate(gases)}
+
+    def _fmt_dict(d):
+        return {k: fmt(v) for k, v in d.items()}
+
+    def _find_base_year_sheets(wb):
+        """通过结构特征识别基准年清单sheet，返回 (ws_loc, ws_mar)。
+
+        活动数据汇总 sheet 总是 37 列（固定格式），
+        基准年清单 sheet 列数更少（11-23 列，视是否有右半区 Jinja2 标签而定）。
+        两个基准年 sheet 中列数较多的为基于位置，较少的为基于市场。
+        """
+        candidates = []
+        for ws in wb.worksheets:
+            if 'GHG' not in ws.title:
+                continue
+            if ws.max_column == 37:  # 活动数据汇总，跳过
+                continue
+            candidates.append(ws)
+
+        if len(candidates) < 2:
+            return None, None
+
+        # 按列数降序：多的为位置，少的为市场
+        candidates.sort(key=lambda ws: ws.max_column, reverse=True)
+        return candidates[0], candidates[1]
+
+    def _is_data_row(row_vals):
+        """判断一行是否为数据行：col[1] 非空，col[2]（CO2）为数值。"""
+        if len(row_vals) < 10:
+            return False
+        col1 = str(row_vals[1]).strip() if row_vals[1] is not None else ''
+        if not col1:
+            return False
+        # 排除表头行（col[2] = 'CO2' 等非数值文本）
+        try:
+            float(str(row_vals[2]).replace(',', ''))
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def _parse_sheet(ws):
+        """内容感知解析：自动识别数据行，兼容不同行布局。
+
+        返回 (scope1, scope2, cats_dict, scope3_total, grand_total)。
+        """
+        # 收集主表区所有数据行（row < 53），按出现顺序排列
+        main_data = []
+        for row in ws.iter_rows(min_row=1, max_row=52, values_only=True):
+            if _is_data_row(row):
+                main_data.append(_read_gas_row(row))
+
+        scope1 = main_data[0] if len(main_data) > 0 else {}
+        scope2 = main_data[1] if len(main_data) > 1 else {}
+        cats = {}
+        for i in range(15):
+            idx = 2 + i
+            if idx < len(main_data):
+                cats[f'cat{i + 1}'] = main_data[idx]
+
+        # 合计区（row 53+）：收集所有数据行
+        summary_data = []
+        for row in ws.iter_rows(min_row=53, values_only=True):
+            if _is_data_row(row):
+                summary_data.append(_read_gas_row(row))
+
+        # 合计区按顺序：范围一、范围二、范围三、总计
+        scope3_total = summary_data[2] if len(summary_data) > 2 else {}
+        grand_total = summary_data[3] if len(summary_data) > 3 else {}
+
+        return scope1, scope2, cats, scope3_total, grand_total
+
+    ws_loc, ws_mar = _find_base_year_sheets(workbook)
+
+    if not ws_loc or not ws_mar:
+        print("[基准年清单] 未找到基准年温室气体清单sheet，跳过 summary_data_base")
+        return None
+
+    loc = _parse_sheet(ws_loc)
+    mar = _parse_sheet(ws_mar)
+
+    scope1, scope2_loc, cats_loc, scope3_loc_total, total_loc = loc
+    _, scope2_mar, cats_mar, scope3_mar_total, total_mar = mar
+
+    # scope1 和 scope3 以位置sheet为准（与市场sheet数值相同）
+    scope3 = _fmt_dict(scope3_loc_total) if scope3_loc_total else {}
+    for cat_key, cat_vals in cats_loc.items():
+        scope3[cat_key] = _fmt_dict(cat_vals)
+
+    result = {
+        'scope1': _fmt_dict(scope1),
+        'scope2': {
+            'loc': _fmt_dict(scope2_loc),
+            'mar': _fmt_dict(scope2_mar),
+        },
+        'scope3': scope3,
+        'total': _fmt_dict(total_loc) if total_loc else {},
+        'total_loc': _fmt_dict(total_loc) if total_loc else {},
+        'total_mar': _fmt_dict(total_mar) if total_mar else {},
+        'total_mkt': _fmt_dict(total_mar) if total_mar else {},
+    }
+    result['scope2']['mkt'] = result['scope2']['mar']
+
+    print(f"[基准年清单] 基于位置总计: {result['total_loc']['total']} 吨CO2e")
+    print(f"[基准年清单] 基于市场总计: {result['total_mar']['total']} 吨CO2e")
+    return result
+
+
 def generate_report_from_xlsx(
     xlsx_path=DEFAULT_DY_XLSX_NAME,
-    template_path="template-1.docx",
+    template_path="blank_template.docx",
     output_path="carbon_report.docx"
 ):
     """
@@ -872,6 +1006,20 @@ def generate_report_from_xlsx(
     # 更新render_context中的summary_data
     render_context['summary_data'] = summary_data
 
+    # 3.5.5 从Excel读取基准年温室气体清单sheet，构建 summary_data_base
+    print("\n[步骤3.5.5] 读取基准年温室气体清单sheet...")
+    import openpyxl
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    try:
+        summary_data_base = _build_summary_data_base(wb)
+        if summary_data_base is not None:
+            render_context['summary_data_base'] = summary_data_base
+            print("[基准年清单] summary_data_base 已添加到渲染上下文")
+        else:
+            print("[基准年清单] 未生成 summary_data_base，模板中的 {{summary_data_base.*}} 将显示为空")
+    finally:
+        wb.close()
+
     # 3.6 拆分 scope_2 数据：区分基于位置和基于市场的 AD 描述
     quant_methods = render_context.get('quantification_methods', {})
     scope_2_all = quant_methods.get('scope_2', {})
@@ -920,18 +1068,21 @@ def generate_report_from_xlsx(
     print("[步骤4] 渲染模板...")
     
     # 注册自定义 Jinja2 过滤器
-    from jinja2 import Environment
+    from jinja2 import Environment, ChainableUndefined
     from jinja2_filters import format_number, format_emission, register_filters_to_template
 
-    env = Environment()
+    env = Environment(undefined=ChainableUndefined)
     env.filters['cn_num'] = to_chinese_num
     env.filters['format_number'] = format_number
     env.filters['format_emission'] = format_emission
-    template.jinja_env = env
 
-    print("[渲染] 已注册过滤器: cn_num, format_number, format_emission")
+    print("[渲染] 已注册过滤器: cn_num, format_number, format_emission (未定义变量将显示为空)")
 
-    template.render(render_context)
+    today = date.today()
+    render_context['posted_time'] = f"{today.year}年{today.month}月{today.day}日"
+    print(f"[渲染] 生成日期（覆盖posted_time）: {render_context['posted_time']}")
+
+    template.render(render_context, jinja_env=env)
 
     # 5. 保存报告
     print(f"\n[步骤5] 保存报告到: {output_path}")

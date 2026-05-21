@@ -52,6 +52,15 @@ def safe_get_cell(row, col_idx):
         return ''
 
 
+def normalize_chinese_dates(text: str) -> str:
+    """去除中文日期格式中月/日前导零：2007年03月09日 → 2007年3月9日"""
+    if not text:
+        return text
+    text = re.sub(r'(\d{4})年0(\d)月', r'\1年\2月', text)
+    text = re.sub(r'月0(\d)日', r'月\1日', text)
+    return text
+
+
 def clean_multiline_text(value: str) -> str:
     """清理多行文本，保留段落分隔（\\n\\n）"""
     if value is None:
@@ -71,6 +80,8 @@ def clean_multiline_text(value: str) -> str:
         value = re.sub(r' ?\n\n ?', '\n\n', value).strip()
         # 统一中英文括号
         value = value.replace('(', '（').replace(')', '）')
+        # 去除中文日期前导零
+        value = normalize_chinese_dates(value)
     return value
 
 

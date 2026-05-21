@@ -42,9 +42,14 @@ class BasicInfoReader(BaseReader):
             'reporting_period': None,
             'report_year': '2024',
             'next_year': '2025',  # 明年
+            'base_year': None,    # 基准年
             'producer': None,
             'auditor': None,
             'approver': None,
+            'uncertainty_score_loc_based': None,
+            'uncertainty_score_mkt_based': None,
+            'uncertainty_level_loc': None,
+            'uncertainty_level_mkt': None,
         }
 
         # 查找基本信息表
@@ -91,6 +96,8 @@ class BasicInfoReader(BaseReader):
                             result['next_year'] = str(int(result['report_year']) + 1)
                         except (ValueError, TypeError):
                             result['next_year'] = '2025'
+                    elif key == 'base_year' or '基准年' in key:
+                        result['base_year'] = str(value).strip() if value else None
                     elif key == 'document_number':
                         result['document_number'] = str(value).strip() if value else None
                     elif key in result:
@@ -118,6 +125,15 @@ class BasicInfoReader(BaseReader):
                                 result['next_year'] = str(int(result['report_year']) + 1)
                             except (ValueError, TypeError):
                                 result['next_year'] = '2025'
+
+        # 格式化不确定性得分（保留两位小数）
+        for score_key in ['uncertainty_score_loc_based', 'uncertainty_score_mkt_based']:
+            val = result.get(score_key)
+            if val is not None and val != '':
+                try:
+                    result[score_key] = f"{float(val):.2f}"
+                except (ValueError, TypeError):
+                    pass
 
         # 将None值转换为空字符串（避免Jinja2渲染为"None"）
         for key in result:

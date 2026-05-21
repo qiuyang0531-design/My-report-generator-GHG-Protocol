@@ -25,10 +25,13 @@ Thumbs.db
 .~*.docx
 .~*.xlsx
 
-# Excel files (except the test_data.xlsx example)
+# Excel files (except blank_form.xlsx)
 *.xlsx
-!test_data.xlsx
-!DY-GHG-2026-01 大冶特殊钢-温室气体盘查清册-Update 20260317Protocol-tr-0408.xlsx
+!blank_form.xlsx
+
+# Word template files (except blank_template.docx)
+*.docx
+!blank_template.docx
 
 # Test output
 test_report.docx
@@ -58,3 +61,16 @@ cc-switch/
 cc-switch-portable/
 cc-switch-windows-portable.zip
 carbon_report.docx
+
+# Backup files
+*.bak
+*.bak2
+*.bak3
+*.bak4
+*.bak5
+
+# Temp output files
+_gen_*.txt
+blank_output.docx
+_check_output.py
+_fix_cover.py
