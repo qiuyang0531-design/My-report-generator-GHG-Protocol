@@ -329,38 +329,33 @@ def clean_excessive_blank_lines(doc):
     if br_cleaned:
         print(f"  清理了 {br_cleaned} 个段落内部的残留 <w:br/> 空行")
 
-def insert_toc_field(doc):
-    """在"概述"段落前插入 Word TOC 域目录
+def insert_toc_field(doc, skip_static=False):
+    """在"概述"段落前插入目录
 
-    1. 给所有 Style2 段落设置大纲级别 1（排除"目录"标题自身）
-    2. 插入 TOC \\o "1-1" 域（基于大纲级别，比 \\t 样式名匹配更可靠）
-    3. 设置 updateFields，打开文档即可更新（点一次"是"）
+    同时生成静态目录条目（不依赖 Word COM 即可显示）和 TOC 域（可用 COM
+    更新为带页码的完整目录）。静态条目确保即使没有 pywin32 也能看到目录结构。
+
+    当 skip_static=True 时，只插入 TOC 域（不含静态条目），
+    适用于 COM 可用时避免后续清理静态条目。
     """
     from docx.oxml.ns import qn
     from docx.oxml import parse_xml, OxmlElement
+    from docx.shared import Pt
 
-    # ---- Step 1: 给 Style2 段落设置大纲级别 ----
     ns_w = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-    outline_count = 0
+
+    # ---- Step 1: 收集所有 Style2 标题（排除"目录"自身） ----
+    headings = []
     for para in doc.paragraphs:
         if para.style.name == 'Style2':
             text = para.text.strip()
-            if text == '目录':
-                continue  # 目录标题自身不入目录
-            pPr = para._element.find(qn('w:pPr'))
-            if pPr is None:
-                pPr = OxmlElement('w:pPr')
-                para._element.insert(0, pPr)
-            # 移除旧的大纲级别
-            old_lvl = pPr.find(qn('w:outlineLvl'))
-            if old_lvl is not None:
-                pPr.remove(old_lvl)
-            # 设置大纲级别 0 = Level 1（对应 TOC \\o "1-1"）
-            outline_lvl = OxmlElement('w:outlineLvl')
-            outline_lvl.set(qn('w:val'), '0')
-            pPr.append(outline_lvl)
-            outline_count += 1
-    print(f"  已为 {outline_count} 个 Style2 段落设置大纲级别 1")
+            if text and text != '目录':
+                headings.append(text)
+    print(f"  收集到 {len(headings)} 个 Style2 标题")
+
+    if not headings:
+        print("  未找到 Style2 标题，跳过目录插入")
+        return
 
     # ---- Step 2: 查找"概述"段落 ----
     target = None
@@ -373,44 +368,99 @@ def insert_toc_field(doc):
         print("  未找到'概述'段落，跳过目录插入")
         return
 
-    # ---- Step 3: 目录标题段落（Normal 样式 + 加粗居中 + 段前新页，不入目录） ----
-    toc_title = parse_xml(
-        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:pPr>'
-        '<w:pageBreakBefore/>'
-        '<w:keepNext/>'
-        '<w:jc w:val="center"/>'
-        '</w:pPr>'
-        '<w:r>'
-        '<w:rPr><w:b/><w:sz w:val="32"/></w:rPr>'
-        '<w:t xml:space="preserve">目录</w:t>'
-        '</w:r>'
-        '</w:p>'
-    )
+    # ---- Step 3: 给所有 Style2 段落设置大纲级别（供 TOC 域使用） ----
+    outline_count = 0
+    for para in doc.paragraphs:
+        if para.style.name == 'Style2':
+            text = para.text.strip()
+            if text == '目录':
+                continue
+            pPr = para._element.find(qn('w:pPr'))
+            if pPr is None:
+                pPr = OxmlElement('w:pPr')
+                para._element.insert(0, pPr)
+            old_lvl = pPr.find(qn('w:outlineLvl'))
+            if old_lvl is not None:
+                pPr.remove(old_lvl)
+            outline_lvl = OxmlElement('w:outlineLvl')
+            outline_lvl.set(qn('w:val'), '0')
+            pPr.append(outline_lvl)
+            outline_count += 1
+    print(f"  已为 {outline_count} 个 Style2 段落设置大纲级别 1")
 
-    # ---- Step 4: TOC 域段落（\\o "1-1" 收集大纲级别 1 的段落） ----
-    toc_field = parse_xml(
-        '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:r>'
-        '<w:fldChar w:fldCharType="begin"/>'
-        '</w:r>'
-        '<w:r>'
-        '<w:instrText xml:space="preserve"> TOC \\o "1-1" \\h </w:instrText>'
-        '</w:r>'
-        '<w:r>'
-        '<w:fldChar w:fldCharType="separate"/>'
-        '</w:r>'
-        '<w:r>'
-        '<w:rPr><w:b/><w:color w:val="FF0000"/></w:rPr>'
-        '<w:t>（打开文档时点"是"更新目录）</w:t>'
-        '</w:r>'
-        '<w:r>'
-        '<w:fldChar w:fldCharType="end"/>'
-        '</w:r>'
-        '</w:p>'
-    )
+    # ---- Step 4: 构建目录元素列表 ----
 
-    # ---- Step 5: 给"概述"段落加 pageBreakBefore，确保正文从新页开始 ----
+    def _make_toc_title():
+        """目录标题段落：居中加粗，段前分页"""
+        return parse_xml(
+            '<w:p xmlns:w="' + ns_w + '">'
+            '<w:pPr>'
+            '<w:pageBreakBefore/>'
+            '<w:keepNext/>'
+            '<w:jc w:val="center"/>'
+            '</w:pPr>'
+            '<w:r>'
+            '<w:rPr><w:b/><w:sz w:val="32"/></w:rPr>'
+            '<w:t xml:space="preserve">目录</w:t>'
+            '</w:r>'
+            '</w:p>'
+        )
+
+    def _make_toc_entry_p(text):
+        """单条目录条目：左对齐"""
+        p = OxmlElement('w:p')
+        pPr = OxmlElement('w:pPr')
+        # 左对齐
+        jc = OxmlElement('w:jc')
+        jc.set(qn('w:val'), 'left')
+        pPr.append(jc)
+        # 行距 1.5 倍
+        spacing = OxmlElement('w:spacing')
+        spacing.set(qn('w:line'), '360')
+        spacing.set(qn('w:lineRule'), 'auto')
+        pPr.append(spacing)
+        p.append(pPr)
+        # 文本 run
+        r = OxmlElement('w:r')
+        rPr = OxmlElement('w:rPr')
+        rFonts = OxmlElement('w:rFonts')
+        rFonts.set(qn('w:eastAsia'), '仿宋')
+        rPr.append(rFonts)
+        sz = OxmlElement('w:sz')
+        sz.set(qn('w:val'), '24')  # 12pt
+        rPr.append(sz)
+        r.append(rPr)
+        t = OxmlElement('w:t')
+        t.set(qn('xml:space'), 'preserve')
+        t.text = text
+        r.append(t)
+        p.append(r)
+        return p
+
+    def _make_toc_field_p():
+        """TOC 域段落（供 Word COM 更新页码）"""
+        return parse_xml(
+            '<w:p xmlns:w="' + ns_w + '">'
+            '<w:r>'
+            '<w:fldChar w:fldCharType="begin"/>'
+            '</w:r>'
+            '<w:r>'
+            '<w:instrText xml:space="preserve"> TOC \\o "1-1" \\h </w:instrText>'
+            '</w:r>'
+            '<w:r>'
+            '<w:fldChar w:fldCharType="separate"/>'
+            '</w:r>'
+            '<w:r>'
+            '<w:rPr><w:b/><w:color w:val="FF0000"/></w:rPr>'
+            '<w:t>（打开文档后按 Ctrl+A 再按 F9 可更新目录页码）</w:t>'
+            '</w:r>'
+            '<w:r>'
+            '<w:fldChar w:fldCharType="end"/>'
+            '</w:r>'
+            '</w:p>'
+        )
+
+    # ---- Step 5: 给"概述"段落加 pageBreakBefore ----
     target_pPr = target.find(qn('w:pPr'))
     if target_pPr is None:
         target_pPr = OxmlElement('w:pPr')
@@ -418,11 +468,22 @@ def insert_toc_field(doc):
     page_break = OxmlElement('w:pageBreakBefore')
     target_pPr.append(page_break)
 
-    # 插入顺序：toc_title → toc_field → 概述
-    target.addprevious(toc_field)       # TOC 域紧贴概述
-    toc_field.addprevious(toc_title)    # "目录"标题在 TOC 域前
+    # ---- Step 6: 插入目录元素 ----
+    # 插入顺序：目录标题 → 静态条目（如果未跳过） → TOC 域 → 概述
+    elements = [_make_toc_title()]
+    if not skip_static:
+        for h in headings:
+            elements.append(_make_toc_entry_p(h))
+    elements.append(_make_toc_field_p())
 
-    print('  TOC 域目录已插入（大纲级别模式，目录另起一页，正文从新页开始）')
+    # 逆序插入（addprevious 每次插入到 target 前面）
+    for elem in reversed(elements):
+        target.addprevious(elem)
+
+    if skip_static:
+        print('  目录已插入（仅 TOC 域，COM 将更新页码，目录另起一页）')
+    else:
+        print('  目录已插入（含静态条目 + TOC 域，目录另起一页）')
 
 
 

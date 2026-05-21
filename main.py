@@ -70,7 +70,9 @@ def resolve_inventory_xlsx_path(xlsx_path: str) -> str:
     ]
 
     is_default = xlsx_path == DEFAULT_DY_XLSX_NAME
-    latest = _find_latest_inventory_xlsx(search_dirs) if is_default else None
+    # 只有 DY-GHG 开头的盘查清册文件才启用自动搜索最新版本
+    is_dy_ghg = os.path.basename(xlsx_path).startswith("DY-GHG-")
+    latest = _find_latest_inventory_xlsx(search_dirs) if (is_default and is_dy_ghg) else None
 
     if xlsx_path and os.path.exists(xlsx_path):
         if not is_default or not latest:
@@ -1230,7 +1232,14 @@ def generate_report_from_xlsx(
 
     # 7.7. 插入 Word TOC 域目录
     print(f"\n[步骤7.7] 插入 Word TOC 域目录...")
-    insert_toc_field(doc)
+    # 检查 COM 是否可用，如果可用则跳过静态条目（COM 会生成更完整的目录）
+    _com_available = False
+    try:
+        import win32com.client
+        _com_available = True
+    except ImportError:
+        pass
+    insert_toc_field(doc, skip_static=_com_available)
     doc.save(output_path)
 
     # 8. 清理量化方法说明部分的过多空行
@@ -1361,9 +1370,9 @@ def generate_report_from_xlsx(
         finally:
             word.Quit()
     except ImportError:
-        print("  pywin32 未安装，跳过 COM 目录更新（页码可能不正确）")
+        print("  pywin32 未安装，跳过 COM 目录更新（使用静态目录条目）")
     except Exception as e:
-        print(f"  COM 目录更新失败: {e}")
+        print(f"  COM 目录更新失败: {e}（使用静态目录条目）")
 
     print("\n" + "=" * 50)
     print(f"报告生成成功: {output_path}")
