@@ -62,6 +62,12 @@ cc-switch-portable/
 cc-switch-windows-portable.zip
 carbon_report.docx
 
+# Log files
+*.log
+
+# Claude local settings
+.claude/settings.local.json
+
 # Backup files
 *.bak
 *.bak2
