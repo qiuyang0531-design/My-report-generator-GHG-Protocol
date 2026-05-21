@@ -476,9 +476,11 @@ def insert_toc_field(doc, skip_static=False):
             elements.append(_make_toc_entry_p(h))
     elements.append(_make_toc_field_p())
 
-    # 逆序插入（addprevious 每次插入到 target 前面）
+    # 逆序链式插入：每次插入到上一个元素前面，确保目录 → 条目 → TOC域 → 概述
+    prev = target
     for elem in reversed(elements):
-        target.addprevious(elem)
+        prev.addprevious(elem)
+        prev = elem
 
     if skip_static:
         print('  目录已插入（仅 TOC 域，COM 将更新页码，目录另起一页）')
